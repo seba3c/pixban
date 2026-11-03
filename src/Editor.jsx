@@ -132,7 +132,7 @@ export default function Editor({
     const op = shown.find((o) => o.id === selected) || draft?.op;
     if (op) {
       const b = bounds(op);
-      ctx.strokeStyle = theme === "dark" ? "#f87171" : "#dc2626";
+      ctx.strokeStyle = theme === "dark" ? "#f87171" : "#2563eb";
       ctx.lineWidth = 1.5 / scale;
       ctx.setLineDash([5 / scale, 4 / scale]);
       ctx.strokeRect(b.x, b.y, b.w, b.h);

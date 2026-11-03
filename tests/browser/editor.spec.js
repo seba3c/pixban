@@ -35,6 +35,18 @@ async function draw(page) {
   await page.mouse.up();
   await expect(page.locator(".region-row")).toHaveCount(1);
 }
+async function expectSelectionColor(page, theme) {
+  // Fixture pixels have no red above 159 and no bright blue-dominant pixels.
+  // This checks the visible outline, including antialiased strokes, after redraw.
+  await expect.poll(() => page.getByTestId("editor-canvas").evaluate((canvas, mode) => {
+    const data = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+    for (let i = 0; i < data.length; i += 4) {
+      const [r, g, b] = data.subarray(i, i + 3);
+      if (mode === "light" ? b > 160 && b > r * 1.7 && b > g * 1.3 : r > 180 && r > g * 1.5 && r > b * 1.5) return true;
+    }
+    return false;
+  }, theme)).toBe(true);
+}
 async function imageAction(page, name) {
   await page.locator(".file-menu > button").click();
   await page.getByRole("menuitem", { name, exact: true }).click();
@@ -68,8 +80,11 @@ test("English default, language and theme persistence", async ({ page }) => {
 test("rectangle, independent intensity, history, exports and preference changes", async ({
   page,
 }) => {
+  await page.emulateMedia({ colorScheme: "light" });
   await openImage(page);
   await draw(page);
+  await expect(page.locator(".tool.active")).toHaveCSS("color", "rgb(37, 99, 235)");
+  await expectSelectionColor(page, "light");
   await page.locator("#block").fill("32");
   await page.locator("#block").press("ArrowRight");
   await page.locator("#block").blur();
@@ -86,6 +101,8 @@ test("rectangle, independent intensity, history, exports and preference changes"
   expect([...result.data.slice(0, 4)]).toEqual([0, 0, 0, 255]);
   expect(result.data.equals(PNG.sync.read(fixture()).data)).toBe(false);
   await page.getByLabel("Toggle color theme").click();
+  await expect(page.locator(".tool.active")).toHaveCSS("color", "rgb(248, 113, 113)");
+  await expectSelectionColor(page, "dark");
   const second = await download(page);
   expect(PNG.sync.read(second.bytes).data.equals(result.data)).toBe(true);
   const jpg = await download(page, "jpeg");
@@ -225,6 +242,8 @@ test("header, attribution and previews remain available on mobile in both themes
     await expect(page.getByRole("link", { name: locale, exact: true })).toHaveAttribute("aria-current", "true");
     for (let i = 0; i < 2; i++) {
       await page.locator(".header-actions .icon-button").click();
+      const theme = await page.locator("html").getAttribute("data-theme");
+      await expect(page.locator(".tool.active")).toHaveCSS("color", theme === "dark" ? "rgb(248, 113, 113)" : "rgb(37, 99, 235)");
       await page.getByRole("button", { name: locale === "EN" ? "Settings and regions" : "Ajustes y regiones", exact: true }).click();
       await expect(page.locator(".block-preview")).toBeVisible();
       await expect(page.locator(".brush-preview")).toBeVisible();
@@ -259,7 +278,7 @@ test("sample car loads without edits, suggests the plate and exports edited pixe
   const scale = Math.min((box.width - 80) / original.width, (box.height - 80) / original.height, 1);
   const x = box.x + (box.width - original.width * scale) / 2;
   const y = box.y + (box.height - original.height * scale) / 2;
-  const plates = [[.157, .714, .237, .782], [.820, .704, .895, .77]];
+  const plates = [[.270, .731, .347, .814], [.805, .716, .884, .800]];
   for (const [i, [left, top, right, bottom]] of plates.entries()) {
     await page.mouse.move(x + original.width * left * scale, y + original.height * top * scale);
     await page.mouse.down();
@@ -334,7 +353,7 @@ test("light mode uses neutral fills and places privacy after a long region list"
   await page.getByRole("button", { name: "Brush", exact: true }).click();
   await expect(page.locator(".brush-preview span")).toHaveCSS("background-color", "rgb(229, 229, 229)");
   await expect(page.locator(".tool.active")).toHaveCSS("background-color", "rgb(229, 229, 229)");
-  await expect(page.locator(".tool.active")).toHaveCSS("border-top-color", "rgb(220, 38, 38)");
+  await expect(page.locator(".tool.active")).toHaveCSS("border-top-color", "rgb(37, 99, 235)");
   const canvas = await page.getByTestId("editor-canvas").boundingBox();
   for (let i = 0; i < 12; i++) {
     await page.mouse.move(canvas.x + canvas.width / 2 - 25, canvas.y + canvas.height / 2);
