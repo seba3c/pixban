@@ -644,21 +644,6 @@ export default function App() {
               />
             ) : (
               <div className="empty-state">
-                <div className="empty-art" aria-hidden="true">
-                  <div className="picture-card">
-                    <div className="art-sun" />
-                    <div className="art-mountain" />
-                    <div className="mosaic">
-                      {Array.from({ length: 20 }, (_, i) => (
-                        <i key={i} />
-                      ))}
-                    </div>
-                  </div>
-                  <span className="art-chip">
-                    <Scan size={18} />
-                  </span>
-                  <span className="art-spark">+</span>
-                </div>
                 <p>{t.description}</p>
                 <button
                   className="primary large"
