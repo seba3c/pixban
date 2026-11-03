@@ -270,7 +270,7 @@ test("header, attribution and previews remain available on mobile in both themes
 test("sample car loads without edits, suggests the plate and exports edited pixels", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Try a sample image", exact: true }).click();
-  await expect(page.locator(".image-name")).toHaveText("Retro cars.png");
+  await expect(page.locator(".image-name")).toHaveText("Retro cars.webp");
   await expect(page.locator(".canvas-hint")).toHaveText("Try pixelating the cars’ license plates.");
   await expect(page.locator(".region-row")).toHaveCount(0);
   const original = PNG.sync.read((await download(page)).bytes);

@@ -26,7 +26,7 @@ import {
   Upload,
 } from "lucide-react";
 import Editor from "./Editor.jsx";
-import sampleCar from "./assets/sample-car.png";
+import sampleCar from "./assets/sample-car.webp";
 import { historyReducer, initialHistory, renderPixels } from "./engine.js";
 import { messages, preference, persist } from "./i18n.js";
 const DEFAULT_BLOCK = 35;
@@ -264,7 +264,7 @@ export default function App() {
       if (!response.ok) throw new Error("sample");
       const blob = await response.blob();
       if (id !== loadId.current) return;
-      await openFile(new File([blob], `${t.sampleName}.png`, { type: "image/png" }), true);
+      await openFile(new File([blob], `${t.sampleName}.webp`, { type: "image/webp" }), true);
     } catch {
       if (id === loadId.current) {
         setBusy(false);
