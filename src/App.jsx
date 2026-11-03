@@ -29,6 +29,7 @@ import Editor from "./Editor.jsx";
 import sampleCar from "./assets/sample-car.webp";
 import { historyReducer, initialHistory, renderPixels } from "./engine.js";
 import { messages, preference, persist } from "./i18n.js";
+import { localePath, pathLocale, renderGuide, seo, updatePageMetadata } from "./seo.js";
 const DEFAULT_BLOCK = 35;
 const DEFAULT_DIAMETER = 45;
 
@@ -49,9 +50,7 @@ function PixelLogo() {
   );
 }
 export default function App() {
-  const [lang, setLang] = useState(() =>
-    preference("pixelar.language", "en") === "es" ? "es" : "en",
-  );
+  const [lang, setLang] = useState(() => pathLocale(location.pathname));
   const [theme, setTheme] = useState(() =>
     preference(
       "pixelar.theme",
@@ -117,8 +116,16 @@ export default function App() {
   };
   useEffect(() => {
     document.documentElement.lang = lang;
+    updatePageMetadata(lang);
+    if (location.pathname !== localePath(lang))
+      window.history.replaceState(null, "", localePath(lang) + location.search + location.hash);
     persist("pixelar.language", lang);
   }, [lang]);
+  useEffect(() => {
+    const onPopState = () => setLang(pathLocale(location.pathname));
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
@@ -531,11 +538,14 @@ export default function App() {
                   <span className="language-divider" aria-hidden="true">|</span>
                 )}
                 <a
-                  href={`#${locale}`}
+                  href={localePath(locale)}
                   lang={locale}
+                  hrefLang={locale}
                   aria-current={lang === locale ? "true" : undefined}
                   onClick={(e) => {
+                    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
                     e.preventDefault();
+                    if (lang !== locale) window.history.pushState(null, "", localePath(locale) + location.search);
                     setLang(locale);
                   }}
                 >
@@ -644,6 +654,7 @@ export default function App() {
               />
             ) : (
               <div className="empty-state">
+                <h1>{seo[lang].heading}</h1>
                 <p>{t.description}</p>
                 <button
                   className="primary large"
@@ -667,6 +678,7 @@ export default function App() {
                   {t.sample}
                   <ArrowUpRight size={14} />
                 </button>
+                <details className="image-guide" dangerouslySetInnerHTML={{ __html: renderGuide(lang) }} />
               </div>
             )}
             <div className="canvas-bottom">

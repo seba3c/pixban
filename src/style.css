@@ -569,6 +569,37 @@ input[type="range"] {
   max-width: 330px;
   margin: 0 0 25px;
 }
+.empty-state > h1 {
+  max-width: 100%;
+  white-space: normal;
+  overflow: visible;
+  margin: 0 0 14px;
+  font-size: clamp(20px, 3vw, 30px);
+  flex-shrink: 0;
+}
+.empty-state > * { flex-shrink: 0; }
+.image-guide {
+  max-width: 420px;
+  margin-top: 18px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+  text-align: left;
+}
+.image-guide summary { cursor: pointer; text-align: center; }
+.image-guide li + li { margin-top: 8px; }
+.image-guide ol { padding-left: 22px; }
+.static-landing {
+  display: block;
+  height: 100%;
+  overflow: auto;
+  padding: 32px 24px;
+  background: var(--bg);
+  color: var(--text);
+}
+.static-landing > * { max-width: 640px; margin-left: auto; margin-right: auto; }
+.static-landing nav { margin-top: 16px; }
+.static-landing h1 { white-space: normal; }
 .drop-caption {
   font-size: 10px;
   color: var(--muted);

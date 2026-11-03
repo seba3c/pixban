@@ -6,3 +6,5 @@ playwright-report/
 .openai/*.local.*
 
 .idea/
+.env.local
+.env.*.local

@@ -330,13 +330,13 @@ test("menu keyboard navigation and viewport layout", async ({ page }) => {
 });
 
 
-test("pixban branding preserves legacy preferences and removes the workspace heading", async ({ page }) => {
+test("pixban branding and localized route preserve the legacy theme preference", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("pixelar.language", "es");
     localStorage.setItem("pixelar.theme", "dark");
   });
-  await page.goto("/");
-  await expect(page).toHaveTitle("pixban");
+  await page.goto("/es/");
+  await expect(page).toHaveTitle("pixban — Pixelar imágenes online y en privado");
   await expect(page.locator(".brand")).toHaveText("pixban.");
   await expect(page.locator("html")).toHaveAttribute("lang", "es");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
