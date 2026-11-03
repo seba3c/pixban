@@ -13,6 +13,8 @@ export default function Editor({
   setZoom,
   fitToken,
   t,
+  theme,
+  sampleHint,
 }) {
   const drawRef = useRef(),
     wrap = useRef(),
@@ -130,7 +132,7 @@ export default function Editor({
     const op = shown.find((o) => o.id === selected) || draft?.op;
     if (op) {
       const b = bounds(op);
-      ctx.strokeStyle = "#ff8b6b";
+      ctx.strokeStyle = theme === "dark" ? "#f87171" : "#dc2626";
       ctx.lineWidth = 1.5 / scale;
       ctx.setLineDash([5 / scale, 4 / scale]);
       ctx.strokeRect(b.x, b.y, b.w, b.h);
@@ -160,7 +162,7 @@ export default function Editor({
     ctx.restore();
   }
   drawRef.current = draw;
-  useEffect(draw, [size, zoom, pan, selected, cursor, tool, diameter]);
+  useEffect(draw, [size, zoom, pan, selected, cursor, tool, diameter, theme]);
   function down(e) {
     if (e.button !== 0 && e.button !== 1) return;
     e.preventDefault();
@@ -275,7 +277,7 @@ export default function Editor({
     <div className="viewport" ref={wrap}>
       <canvas
         ref={canvas}
-        aria-label={t.workspace}
+        aria-label={t.editor}
         data-testid="editor-canvas"
         style={{
           width: size.w,
@@ -305,13 +307,13 @@ export default function Editor({
         }}
       />
       <div className="canvas-hint">
-        {tool === "rect"
+        {sampleHint || (tool === "rect"
           ? t.tip
           : tool === "brush"
             ? t.brushTip
             : tool === "pan"
               ? t.panTip
-              : t.selectTip}
+              : t.selectTip)}
       </div>
     </div>
   );

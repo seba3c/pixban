@@ -15,19 +15,23 @@ import {
   Minus,
   Maximize,
   Trash2,
-  ShieldCheck,
   ChevronRight,
   X,
   Check,
   Image as ImageIcon,
-  Globe,
-  Keyboard,
+  Menu,
+  SlidersHorizontal,
+  ShieldCheck,
   Layers,
   Upload,
 } from "lucide-react";
 import Editor from "./Editor.jsx";
+import sampleCar from "./assets/sample-car.png";
 import { historyReducer, initialHistory, renderPixels } from "./engine.js";
 import { messages, preference, persist } from "./i18n.js";
+const DEFAULT_BLOCK = 35;
+const DEFAULT_DIAMETER = 45;
+
 function IconButton({ label, children, ...props }) {
   return (
     <button className="icon-button" title={label} aria-label={label} {...props}>
@@ -55,12 +59,37 @@ export default function App() {
     ),
   );
   const t = messages[lang];
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [narrow, setNarrow] = useState(() => matchMedia("(max-width: 680px)").matches);
+  const menuRef = useRef(), menuButton = useRef(), settingsDialog = useRef();
+  useEffect(() => {
+    const media = matchMedia("(max-width: 680px)");
+    const change = () => { setNarrow(media.matches); setSettingsOpen(false); };
+    media.addEventListener("change", change);
+    return () => media.removeEventListener("change", change);
+  }, []);
+  useEffect(() => {
+    if (settingsOpen) settingsDialog.current?.showModal();
+    else settingsDialog.current?.close();
+  }, [settingsOpen, narrow]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    menuRef.current?.querySelector('[role="menuitem"]:not(:disabled)')?.focus();
+    const outside = e => {
+      if (!menuRef.current?.contains(e.target)) setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [menuOpen]);
+  const closeMenu = () => { setMenuOpen(false); menuButton.current?.focus(); };
+
   const [history, dispatch] = useReducer(historyReducer, initialHistory),
     ops = history.present;
   const [image, setImage] = useState(null),
     [tool, setTool] = useState("rect"),
-    [block, setBlock] = useState(16),
-    [diameter, setDiameter] = useState(40),
+    [block, setBlock] = useState(DEFAULT_BLOCK),
+    [diameter, setDiameter] = useState(DEFAULT_DIAMETER),
     [selected, setSelected] = useState(null),
     [zoom, setZoom] = useState(1),
     [fitToken, setFitToken] = useState(0),
@@ -78,6 +107,7 @@ export default function App() {
     dragCounter = useRef(0);
   const dirty = JSON.stringify(ops) !== exported;
   const active = ops.find((o) => o.id === selected);
+  const effectiveBlock = slider ?? active?.block ?? block;
   const effectiveOps =
     slider && active
       ? ops.map((o) => (o.id === active.id ? { ...o, block: slider } : o))
@@ -138,7 +168,7 @@ export default function App() {
         ["INPUT", "SELECT", "TEXTAREA"].includes(
           document.activeElement.tagName,
         ) ||
-        exportOpen
+        exportOpen || menuOpen || settingsOpen
       )
         return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
@@ -160,8 +190,34 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [ops, selected, exportOpen]);
-  async function openFile(file) {
+  }, [ops, selected, exportOpen, menuOpen, settingsOpen]);
+  function closeImage() {
+    if (dirty && !window.confirm(t.closeImageConfirm)) return;
+    loadId.current++;
+    if (downloadUrl.current) {
+      URL.revokeObjectURL(downloadUrl.current);
+      downloadUrl.current = null;
+    }
+    fileInput.current.value = "";
+    dragCounter.current = 0;
+    setSettingsOpen(false);
+    setImage(null);
+    dispatch({ type: "reset" });
+    setSelected(null);
+    setTool("rect");
+    setBlock(DEFAULT_BLOCK);
+    setDiameter(DEFAULT_DIAMETER);
+    setZoom(1);
+    setFitToken(0);
+    setFormat("png");
+    setSlider(null);
+    setExportOpen(false);
+    setToast(null);
+    setDragging(false);
+    setBusy(false);
+    setExported("[]");
+  }
+  async function openFile(file, isSample = false) {
     if (!file) return;
     if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
       setToast({ error: true, key: "badFile" });
@@ -183,7 +239,7 @@ export default function App() {
       ctx.drawImage(bitmap, 0, 0);
       const data = ctx.getImageData(0, 0, c.width, c.height).data;
       if (id !== loadId.current) return;
-      setImage({ name: file.name, width: c.width, height: c.height, data });
+      setImage({ name: file.name, width: c.width, height: c.height, data, isSample });
       dispatch({ type: "reset" });
       setSelected(null);
       setExported("[]");
@@ -200,66 +256,21 @@ export default function App() {
       if (id === loadId.current) setBusy(false);
     }
   }
-  function sample() {
-    const c = document.createElement("canvas");
-    c.width = 1200;
-    c.height = 800;
-    const ctx = c.getContext("2d");
-    const sky = ctx.createLinearGradient(0, 0, 0, 800);
-    sky.addColorStop(0, "#e6b18b");
-    sky.addColorStop(0.52, "#f3d9af");
-    sky.addColorStop(0.53, "#577e7c");
-    sky.addColorStop(1, "#183e48");
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, 1200, 800);
-    ctx.fillStyle = "#fff0c8";
-    ctx.beginPath();
-    ctx.arc(820, 235, 64, 0, Math.PI * 2);
-    ctx.fill();
-    for (let i = 0; i < 80; i++) {
-      ctx.fillStyle = `rgba(255,230,180,${0.08 + (i % 4) * 0.025})`;
-      ctx.fillRect(550 + (i % 7) * 29, 440 + i * 4, 270 - (i % 6) * 23, 2);
+  async function sample() {
+    const id = ++loadId.current;
+    setBusy(true);
+    try {
+      const response = await fetch(sampleCar);
+      if (!response.ok) throw new Error("sample");
+      const blob = await response.blob();
+      if (id !== loadId.current) return;
+      await openFile(new File([blob], `${t.sampleName}.png`, { type: "image/png" }), true);
+    } catch {
+      if (id === loadId.current) {
+        setBusy(false);
+        setToast({ error: true, key: "loadError" });
+      }
     }
-    ctx.fillStyle = "#3a5451";
-    ctx.beginPath();
-    ctx.moveTo(0, 430);
-    ctx.lineTo(160, 270);
-    ctx.lineTo(380, 445);
-    ctx.lineTo(0, 560);
-    ctx.fill();
-    ctx.fillStyle = "#213d3e";
-    ctx.beginPath();
-    ctx.moveTo(0, 400);
-    ctx.lineTo(180, 500);
-    ctx.lineTo(380, 550);
-    ctx.lineTo(650, 800);
-    ctx.lineTo(0, 800);
-    ctx.fill();
-    ctx.save();
-    ctx.translate(870, 540);
-    ctx.rotate(-0.08);
-    ctx.fillStyle = "#fcf6e8";
-    ctx.shadowColor = "#0005";
-    ctx.shadowBlur = 24;
-    ctx.fillRect(-140, -60, 280, 160);
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = "#38454a";
-    ctx.font = "14px sans-serif";
-    ctx.fillText("A NOTE TO MYSELF", -115, -30);
-    ctx.font = "bold 23px sans-serif";
-    ctx.fillText("Private details", -115, 8);
-    ctx.font = "18px monospace";
-    ctx.fillText("hello@example.com", -115, 45);
-    ctx.restore();
-    c.toBlob((blob) =>
-      openFile(
-        new File(
-          [blob],
-          lang === "en" ? "Coastal afternoon.png" : "Tarde en la costa.png",
-          { type: "image/png" },
-        ),
-      ),
-    );
   }
   async function download() {
     if (!image || busy) return;
@@ -326,6 +337,151 @@ export default function App() {
       );
     setSlider(null);
   };
+  const settingsPanel = (
+    <>
+      <section className="settings">
+        <span className="eyebrow">{active ? t.selected : t.next}</span>
+        <div className="range-label">
+          <label htmlFor="block">{t.block}</label>
+          <output>
+            {effectiveBlock}
+            <small> px</small>
+          </output>
+        </div>
+        <input
+          id="block"
+          type="range"
+          min="4"
+          max="96"
+          step="1"
+          value={effectiveBlock}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            setBlock(n);
+            if (active) setSlider(n);
+          }}
+          onPointerUp={finishSlider}
+          onKeyUp={finishSlider}
+          onBlur={finishSlider}
+        />
+        <div className="range-ends">
+          <span>4 px</span>
+          <span>96 px</span>
+        </div>
+        <div className="size-preview">
+          <div
+            className="block-preview"
+            role="img"
+            aria-label={`${t.block}: ${effectiveBlock} px`}
+            style={{ "--preview-cell": `${effectiveBlock / 2}px` }}
+          />
+        </div>
+        {tool === "brush" && (
+          <div className="brush-settings">
+            <div className="range-label">
+              <label htmlFor="diameter">{t.diameter}</label>
+              <output>
+                {diameter}
+                <small> px</small>
+              </output>
+            </div>
+            <input
+              id="diameter"
+              type="range"
+              min="8"
+              max="240"
+              value={diameter}
+              onChange={(e) => setDiameter(Number(e.target.value))}
+            />
+            <div className="size-preview">
+              <div
+                className="brush-preview"
+                role="img"
+                aria-label={`${t.diameter}: ${diameter} px`}
+              >
+                <span style={{ width: diameter / 2, height: diameter / 2 }} />
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+      <section className="regions">
+        <div className="section-title">
+          <h2>
+            {t.regions}
+            <span>{ops.length}</span>
+          </h2>
+          {ops.length > 0 && (
+            <IconButton
+              label={t.clear}
+              onClick={() => {
+                if (confirm(t.clearConfirm)) {
+                  commit([]);
+                  setSelected(null);
+                }
+              }}
+            >
+              <Trash2 size={14} />
+            </IconButton>
+          )}
+        </div>
+        {ops.length === 0 ? (
+          <div className="regions-empty">
+            <Layers size={28} strokeWidth={1.2} />
+            <strong>{t.emptyRegions}</strong>
+            <p>{t.emptyRegionsHint}</p>
+          </div>
+        ) : (
+          <ol className="region-list">
+            {ops.map((op, i) => (
+              <li
+                key={op.id}
+                className={op.id === selected ? "selected" : ""}
+              >
+                <button
+                  className="region-row"
+                  onClick={() => {
+                    setSelected(op.id);
+                    setTool("select");
+                    setSlider(null);
+                  }}
+                >
+                  <span className="region-icon">
+                    {op.kind === "rect" ? (
+                      <Scan size={16} />
+                    ) : (
+                      <Paintbrush size={16} />
+                    )}
+                  </span>
+                  <span>
+                    {op.kind === "rect" ? t.region : t.stroke} {i + 1}
+                    <small>{op.block} px</small>
+                  </span>
+                  <ChevronRight size={14} />
+                </button>
+                <IconButton
+                  label={`${t.delete} ${i + 1}`}
+                  onClick={() => {
+                    commit(ops.filter((o) => o.id !== op.id));
+                    if (selected === op.id) setSelected(null);
+                  }}
+                >
+                  <X size={13} />
+                </IconButton>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+      <div className="privacy-card">
+        <ShieldCheck size={19} aria-hidden="true" />
+        <div>
+          <strong>{t.private}</strong>
+          <p>{t.privateLong}</p>
+        </div>
+      </div>
+    </>
+  );
   return (
     <div
       className="app"
@@ -365,22 +521,29 @@ export default function App() {
       <header className="header">
         <a className="brand" href="#" onClick={(e) => e.preventDefault()}>
           <PixelLogo />
-          pixelar<span className="brand-dot">.</span>
+          pixban<span className="brand-dot">.</span>
         </a>
-        <span className="header-divider" />
-        <span className="header-caption">{t.about}</span>
         <div className="header-actions">
-          <label className="language-picker">
-            <Globe size={14} />
-            <select
-              aria-label={t.language}
-              value={lang}
-              onChange={(e) => setLang(e.target.value)}
-            >
-              <option value="en">English</option>
-              <option value="es">Español</option>
-            </select>
-          </label>
+          <nav className="language-picker" aria-label={t.language}>
+            {["en", "es"].map((locale, i) => (
+              <span key={locale}>
+                {i > 0 && (
+                  <span className="language-divider" aria-hidden="true">|</span>
+                )}
+                <a
+                  href={`#${locale}`}
+                  lang={locale}
+                  aria-current={lang === locale ? "true" : undefined}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setLang(locale);
+                  }}
+                >
+                  {locale.toUpperCase()}
+                </a>
+              </span>
+            ))}
+          </nav>
           <IconButton
             label={t.theme}
             onClick={() => {
@@ -391,41 +554,36 @@ export default function App() {
           >
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </IconButton>
-          <span className="header-divider" />
-          <span className="local-badge">
-            <i />
-            {t.private}
-          </span>
         </div>
       </header>
       <main>
-        <section className="workspace-header">
-          <div>
-            <span className="eyebrow">{t.workspace}</span>
-            <h1>{image ? image.name : t.intro}</h1>
-          </div>
-          <div className="workspace-actions">
-            <button
-              className="secondary"
-              onClick={() => fileInput.current.click()}
-              disabled={busy}
-            >
-              <ImagePlus size={16} />
-              {image ? t.change : t.open}
-            </button>
-            <button
-              className="primary"
-              disabled={!image || busy}
-              onClick={() => setExportOpen(true)}
-            >
-              <Download size={16} />
-              {t.download}
-              <ArrowUpRight size={14} />
-            </button>
-          </div>
-        </section>
         <section className="studio">
           <nav className="toolbar" aria-label={t.tools}>
+            <div className="file-menu" ref={menuRef}>
+              <button className="icon-button" ref={menuButton} aria-label={t.imageActions}
+                title={t.imageActions} aria-haspopup="menu" aria-expanded={menuOpen}
+                aria-controls="image-menu" onClick={() => setMenuOpen(v => !v)}
+                onKeyDown={e => { if (e.key === "ArrowDown") { e.preventDefault(); setMenuOpen(true); } }}>
+                <Menu size={20} />
+              </button>
+              {menuOpen && <div id="image-menu" role="menu" aria-label={t.imageActions}
+                onKeyDown={e => {
+                  const items = [...e.currentTarget.querySelectorAll('button:not(:disabled)')];
+                  const i = items.indexOf(document.activeElement);
+                  if (e.key === "Escape") { e.preventDefault(); closeMenu(); }
+                  if (e.key === "Tab") closeMenu();
+                  if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+                    e.preventDefault();
+                    const next = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 :
+                      (i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+                    items[next]?.focus();
+                  }
+                }}>
+                <button role="menuitem" disabled={busy} onClick={() => { closeMenu(); fileInput.current.click(); }}><ImagePlus size={16} />{t.open}</button>
+                <button role="menuitem" disabled={!image || busy} onClick={() => { closeMenu(); setExportOpen(true); }}><Download size={16} />{t.download}</button>
+                <button role="menuitem" disabled={!image || busy} onClick={() => { closeMenu(); closeImage(); }}><X size={16} />{t.close}</button>
+              </div>}
+            </div>
             {tools.map(([id, Icon, label, key]) => (
               <button
                 key={id}
@@ -459,6 +617,9 @@ export default function App() {
             >
               <Redo2 size={18} />
             </IconButton>
+            {narrow && <IconButton label={t.settings} onClick={() => setSettingsOpen(true)}>
+              <SlidersHorizontal size={18} />
+            </IconButton>}
           </nav>
           <div className="canvas-area">
             {image ? (
@@ -478,6 +639,8 @@ export default function App() {
                 setZoom={setZoom}
                 fitToken={fitToken}
                 t={t}
+                theme={theme}
+                sampleHint={image.isSample && ops.length === 0 ? t.sampleHint : null}
               />
             ) : (
               <div className="empty-state">
@@ -496,11 +659,6 @@ export default function App() {
                   </span>
                   <span className="art-spark">+</span>
                 </div>
-                <h2>
-                  {t.tagline}
-                  <br />
-                  <em>{t.tagline2}</em>
-                </h2>
                 <p>{t.description}</p>
                 <button
                   className="primary large"
@@ -529,9 +687,10 @@ export default function App() {
             <div className="canvas-bottom">
               <span>
                 <span className={`status-dot ${image ? "loaded" : ""}`} />
-                {image
-                  ? `${image.width.toLocaleString(lang)} × ${image.height.toLocaleString(lang)} px`
-                  : t.ready}
+                {image ? <>
+                  <span className="image-name" title={image.name}>{image.name}</span>
+                  <span className="image-dimensions">· {image.width.toLocaleString(lang)} × {image.height.toLocaleString(lang)} px</span>
+                </> : t.ready}
               </span>
               <div className="zoom-controls">
                 <IconButton
@@ -560,149 +719,26 @@ export default function App() {
               </div>
             </div>
           </div>
-          <aside className="panel">
-            <section className="settings">
-              <span className="eyebrow">{active ? t.selected : t.next}</span>
-              <div className="range-label">
-                <label htmlFor="block">{t.block}</label>
-                <output>
-                  {slider ?? active?.block ?? block}
-                  <small> px</small>
-                </output>
-              </div>
-              <input
-                id="block"
-                type="range"
-                min="4"
-                max="96"
-                step="1"
-                value={slider ?? active?.block ?? block}
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  setBlock(n);
-                  if (active) setSlider(n);
-                }}
-                onPointerUp={finishSlider}
-                onKeyUp={finishSlider}
-                onBlur={finishSlider}
-              />
-              <div className="range-ends">
-                <span>4 px</span>
-                <span>96 px</span>
-              </div>
-              <div className="block-preview" aria-hidden="true">
-                {Array.from({ length: 18 }, (_, i) => (
-                  <i key={i} style={{ opacity: 0.2 + (i % 5) * 0.16 }} />
-                ))}
-              </div>
-              {tool === "brush" && (
-                <div className="brush-settings">
-                  <div className="range-label">
-                    <label htmlFor="diameter">{t.diameter}</label>
-                    <output>
-                      {diameter}
-                      <small> px</small>
-                    </output>
-                  </div>
-                  <input
-                    id="diameter"
-                    type="range"
-                    min="8"
-                    max="240"
-                    value={diameter}
-                    onChange={(e) => setDiameter(Number(e.target.value))}
-                  />
-                </div>
-              )}
-            </section>
-            <section className="regions">
-              <div className="section-title">
-                <h2>
-                  {t.regions}
-                  <span>{ops.length}</span>
-                </h2>
-                {ops.length > 0 && (
-                  <IconButton
-                    label={t.clear}
-                    onClick={() => {
-                      if (confirm(t.clearConfirm)) {
-                        commit([]);
-                        setSelected(null);
-                      }
-                    }}
-                  >
-                    <Trash2 size={14} />
-                  </IconButton>
-                )}
-              </div>
-              {ops.length === 0 ? (
-                <div className="regions-empty">
-                  <Layers size={28} strokeWidth={1.2} />
-                  <strong>{t.emptyRegions}</strong>
-                  <p>{t.emptyRegionsHint}</p>
-                </div>
-              ) : (
-                <ol className="region-list">
-                  {ops.map((op, i) => (
-                    <li
-                      key={op.id}
-                      className={op.id === selected ? "selected" : ""}
-                    >
-                      <button
-                        className="region-row"
-                        onClick={() => {
-                          setSelected(op.id);
-                          setTool("select");
-                          setSlider(null);
-                        }}
-                      >
-                        <span className="region-icon">
-                          {op.kind === "rect" ? (
-                            <Scan size={16} />
-                          ) : (
-                            <Paintbrush size={16} />
-                          )}
-                        </span>
-                        <span>
-                          {op.kind === "rect" ? t.region : t.stroke} {i + 1}
-                          <small>{op.block} px</small>
-                        </span>
-                        <ChevronRight size={14} />
-                      </button>
-                      <IconButton
-                        label={`${t.delete} ${i + 1}`}
-                        onClick={() => {
-                          commit(ops.filter((o) => o.id !== op.id));
-                          if (selected === op.id) setSelected(null);
-                        }}
-                      >
-                        <X size={13} />
-                      </IconButton>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </section>
-            <div className="privacy-card">
-              <ShieldCheck size={19} />
-              <div>
-                <strong>{t.private}</strong>
-                <p>{t.privateLong}</p>
-              </div>
-            </div>
-          </aside>
+          {!narrow && <aside className="panel">{settingsPanel}</aside>}
+
         </section>
-        <footer>
+        <footer className="site-footer">
           <span>
-            <Keyboard size={14} />
-            {t.shortcuts}
-          </span>
-          <span>
-            {t.support}
-            <ShieldCheck size={13} />
+            @pixban 2026 - Designed by {" "}
+            <a href="https://juanaylola.com/" target="_blank" rel="noopener noreferrer">
+              Juana y Lola
+            </a>
           </span>
         </footer>
       </main>
+      {narrow && <dialog className="settings-dialog" ref={settingsDialog}
+        aria-label={t.settings} onCancel={() => setSettingsOpen(false)}
+        onClick={e => { if (e.target === settingsDialog.current) setSettingsOpen(false); }}>
+        <div className="settings-dialog-header"><strong>{t.settings}</strong>
+          <IconButton label={t.closeSettings} onClick={() => setSettingsOpen(false)}><X size={18} /></IconButton>
+        </div>
+        {settingsPanel}
+      </dialog>}
       {dragging && (
         <div className="drop-overlay">
           <Upload size={40} />

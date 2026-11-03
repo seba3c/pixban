@@ -1,4 +1,4 @@
-# Pixelar
+# pixban
 
 A browser-only image pixelation editor. Images stay on your device: no API, uploads, accounts, telemetry, external fonts, or runtime CDN dependencies.
 
