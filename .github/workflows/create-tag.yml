@@ -1,0 +1,77 @@
+name: create-tag
+
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  create-tag:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: create-tag-main
+      cancel-in-progress: false
+    steps:
+      - name: Select commit to tag
+        id: target
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_SHA: ${{ github.sha }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ "$EVENT_REF" != "refs/heads/main" ]]; then
+              echo "::error::Run create-tag from main."
+              exit 1
+            fi
+            target_sha="$EVENT_SHA"
+          else
+            target_sha="$MERGE_SHA"
+          fi
+
+          if [[ ! "$target_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::The merge or main commit SHA is missing or invalid."
+            exit 1
+          fi
+          echo "sha=$target_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Check out commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.target.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Read package version
+        id: version
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const { version } = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const valid = typeof version === 'string' &&
+            /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version);
+          if (!valid) {
+            console.error('package.json must contain a valid semantic version.');
+            process.exit(1);
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `tag=v${version}\n`);
+          NODE
+
+      - name: Create tag if missing
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          existing="$(git ls-remote --tags origin "refs/tags/$TAG")"
+          if [[ -n "$existing" ]]; then
+            echo "$TAG already exists; leaving it unchanged."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG" HEAD
+          git push origin "refs/tags/$TAG"
