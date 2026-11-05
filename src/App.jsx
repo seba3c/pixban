@@ -2,6 +2,7 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import {
   ArrowUpRight,
   FolderOpen,
+  ClipboardPaste,
   MousePointer2,
   Square,
   Paintbrush,
@@ -14,6 +15,8 @@ import {
   Plus,
   Minus,
   Maximize,
+  ZoomIn,
+  ZoomOut,
   Trash2,
   ChevronRight,
   X,
@@ -33,6 +36,7 @@ import { messages, preference, persist } from "./i18n.js";
 import { localePath, pathLocale, renderGuide, seo, updatePageMetadata } from "./seo.js";
 const DEFAULT_BLOCK = 35;
 const DEFAULT_DIAMETER = 45;
+const IMAGE_EXTENSIONS = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
 
 function IconButton({ label, children, className = "", ...props }) {
   return (
@@ -237,7 +241,7 @@ export default function App() {
         ["INPUT", "SELECT", "TEXTAREA"].includes(
           document.activeElement.tagName,
         ) ||
-        exportOpen || settingsOpen
+        exportOpen || settingsOpen || busy
       )
         return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
@@ -259,7 +263,26 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [ops, selected, exportOpen, settingsOpen]);
+  }, [ops, selected, exportOpen, settingsOpen, busy]);
+  useEffect(() => {
+    const handler = (event) => {
+      if (event.defaultPrevented || busy || exportOpen || settingsOpen ||
+        event.target?.closest?.("input, select, textarea, [contenteditable]:not([contenteditable='false'])")) return;
+      const files = Array.from(event.clipboardData?.items ?? [])
+        .filter(item => item.kind === "file").map(item => item.getAsFile()).filter(Boolean);
+      if (!files.length) files.push(...Array.from(event.clipboardData?.files ?? []));
+      const file = files.find(file => Object.hasOwn(IMAGE_EXTENSIONS, file.type));
+      if (file) {
+        event.preventDefault();
+        openFile(file);
+      } else if (files.some(file => file.type.startsWith("image/"))) {
+        event.preventDefault();
+        setToast({ error: true, key: "badFile" });
+      }
+    };
+    window.addEventListener("paste", handler);
+    return () => window.removeEventListener("paste", handler);
+  }, [busy, exportOpen, settingsOpen, dirty, lang]);
   function closeImage() {
     if (dirty && !window.confirm(t.closeImageConfirm)) return;
     loadId.current++;
@@ -286,20 +309,22 @@ export default function App() {
     setBusy(false);
     setExported("[]");
   }
-  async function openFile(file, isSample = false) {
+  async function openFile(file, isSample = false, requestId) {
+    if (requestId !== undefined && requestId !== loadId.current) return;
     if (!file) return;
-    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+    if (!Object.hasOwn(IMAGE_EXTENSIONS, file.type)) {
       setToast({ error: true, key: "badFile" });
       return;
     }
     if (dirty && !window.confirm(t.discard)) return;
-    const id = ++loadId.current;
+    const id = requestId ?? ++loadId.current;
     setBusy(true);
     const url = URL.createObjectURL(file);
     try {
       const bitmap = new Image();
       bitmap.src = url;
       await bitmap.decode();
+      if (id !== loadId.current) return;
       if (bitmap.width * bitmap.height > 32e6) throw new Error("limit");
       const c = document.createElement("canvas");
       c.width = bitmap.naturalWidth;
@@ -308,7 +333,7 @@ export default function App() {
       ctx.drawImage(bitmap, 0, 0);
       const data = ctx.getImageData(0, 0, c.width, c.height).data;
       if (id !== loadId.current) return;
-      setImage({ name: file.name, width: c.width, height: c.height, data, isSample });
+      setImage({ name: file.name || `clipboard.${IMAGE_EXTENSIONS[file.type]}`, width: c.width, height: c.height, data, isSample });
       dispatch({ type: "reset" });
       setSelected(null);
       setExported("[]");
@@ -322,6 +347,32 @@ export default function App() {
         });
     } finally {
       URL.revokeObjectURL(url);
+      if (id === loadId.current) setBusy(false);
+    }
+  }
+  async function pasteImage() {
+    if (busy || exportOpen || settingsOpen) return;
+    if (!navigator.clipboard?.read) {
+      setToast({ error: true, key: "clipboardUnavailable" });
+      return;
+    }
+    const id = ++loadId.current;
+    setBusy(true);
+    try {
+      // Call directly from the click to retain the browser's user activation.
+      const items = await navigator.clipboard.read();
+      if (id !== loadId.current) return;
+      for (const item of items) {
+        const type = item.types.find(type => Object.hasOwn(IMAGE_EXTENSIONS, type));
+        if (!type) continue;
+        const blob = await item.getType(type);
+        await openFile(new File([blob], blob.name || `clipboard.${IMAGE_EXTENSIONS[type]}`, { type }), false, id);
+        return;
+      }
+      setToast({ error: true, key: "clipboardEmpty" });
+    } catch {
+      if (id === loadId.current) setToast({ error: true, key: "clipboardError" });
+    } finally {
       if (id === loadId.current) setBusy(false);
     }
   }
@@ -618,6 +669,7 @@ export default function App() {
         <section className={`studio ${panelCollapsed ? "panel-collapsed" : ""}`}>
           <nav className="action-bar" aria-label={t.imageActions}>
             <IconButton className="secondary open-action" label={t.open} disabled={busy} onClick={() => fileInput.current.click()}><FolderOpen size={18} /></IconButton>
+            <IconButton className="secondary paste-action" label={t.paste} disabled={busy} onClick={pasteImage}><ClipboardPaste size={18} /></IconButton>
             <span className="action-divider" />
             <IconButton
               label={t.undo}
@@ -636,11 +688,6 @@ export default function App() {
             <span className="toolbar-spacer" />
             <IconButton className="primary" label={t.download} disabled={!image || busy} onClick={() => setExportOpen(true)}><Download size={18} /></IconButton>
           </nav>
-          {image && <div className="document-bar">
-            <ImageIcon size={16} aria-hidden="true" />
-            <span className="image-name" title={image.name}>{image.name}</span>
-            <IconButton label={t.closeImage} disabled={busy} onClick={closeImage}><X size={16} /></IconButton>
-          </div>}
           <nav className="toolbar" aria-label={t.tools}>
             {tools.map(([id, Icon, label, key]) => (
               <button
@@ -658,10 +705,15 @@ export default function App() {
                 <Icon size={20} />
               </button>
             ))}
-            {narrow && <IconButton ref={settingsButton} label={t.settings} onClick={() => setSettingsOpen(true)}>
+            {narrow && <IconButton className="settings-action" ref={settingsButton} label={t.settings} onClick={() => setSettingsOpen(true)}>
               <SlidersHorizontal size={18} />
             </IconButton>}
           </nav>
+          {image && <div className="document-bar">
+            <ImageIcon size={16} aria-hidden="true" />
+            <span className="image-name" title={image.name}>{image.name}</span>
+            <IconButton label={t.closeImage} disabled={busy} onClick={closeImage}><X size={16} /></IconButton>
+          </div>}
           <div className="canvas-area" onWheelCapture={() => {
             const focused = document.activeElement;
             if (focused?.classList.contains("zoom-input")) focused.blur();
@@ -715,6 +767,11 @@ export default function App() {
                 <details className="image-guide" dangerouslySetInnerHTML={{ __html: renderGuide(lang) }} />
               </div>
             )}
+            {narrow && image && <nav className="mobile-zoom-controls" aria-label={t.zoomControls}>
+              <IconButton label={t.zoomOut} onClick={() => setZoom(z => Math.max(0.05, z / 1.2))}><ZoomOut size={20} /></IconButton>
+              <IconButton label={t.zoomIn} onClick={() => setZoom(z => Math.min(8, z * 1.2))}><ZoomIn size={20} /></IconButton>
+              <IconButton label={t.fit} onClick={() => setViewRequest(v => ({ mode: "fit", token: v.token + 1 }))}><Maximize size={20} /></IconButton>
+            </nav>}
           </div>
           <div className="canvas-bottom">
             <span>
@@ -723,7 +780,7 @@ export default function App() {
                 <span className="image-dimensions">{image.width.toLocaleString(lang)} × {image.height.toLocaleString(lang)} px</span>
               </> : t.ready}
             </span>
-            <div className="zoom-controls">
+            {!narrow && <div className="zoom-controls">
               <IconButton
                 label={t.zoomOut}
                 disabled={!image}
@@ -747,7 +804,7 @@ export default function App() {
               >
                 <Maximize size={15} />
               </IconButton>
-            </div>
+            </div>}
           </div>
           {!narrow && <aside className="panel">
             <div className="panel-heading">
