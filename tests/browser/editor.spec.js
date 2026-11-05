@@ -250,7 +250,7 @@ test("header, attribution and previews remain available on mobile in both themes
       await expect(page.locator(".site-footer")).toContainText("@pixban 2026 by Juana y Lola");
       await expect(page.locator(".site-footer a")).toBeVisible();
       await expect(page.locator(".site-footer")).toHaveCSS("font-size", "13px");
-      await expect(page.locator(".site-footer")).toHaveCSS("text-align", "left");
+      await expect(page.locator(".site-footer")).toHaveCSS("text-align", "center");
       await expect(page.locator(".site-footer a")).toHaveAttribute("href", "https://juanaylola.com/");
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     }
@@ -301,6 +301,8 @@ test("visible actions support keyboard navigation and viewport layout", async ({
   await openImage(page);
   const open = page.locator(".open-action");
   await open.focus();
+  await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+  await expect(page.locator(".paste-action")).toBeFocused();
   // Disabled history buttons are skipped in the native tab order.
   await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
   await expect(page.locator(".action-bar .primary")).toBeFocused();
@@ -314,7 +316,7 @@ test("visible actions support keyboard navigation and viewport layout", async ({
     if (size.width <= 680) {
       const toolbar = await page.locator(".toolbar").boundingBox();
       const canvas = await page.locator(".canvas-area").boundingBox();
-      expect(toolbar.y).toBeGreaterThanOrEqual(canvas.y + canvas.height - 1);
+      expect(toolbar.y + toolbar.height).toBeLessThanOrEqual(canvas.y);
     }
   }
 });
@@ -359,7 +361,7 @@ test("light mode uses neutral fills and keeps footer privacy outside a long regi
   await page.getByRole("button", { name: "Settings and regions", exact: true }).click();
   await expect(page.locator(".settings-dialog .footer-privacy")).toHaveCount(0);
   await page.keyboard.press("Escape");
-  await expect(page.locator(".site-footer")).toHaveCSS("text-align", "left");
+  await expect(page.locator(".site-footer")).toHaveCSS("text-align", "center");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await imageAction(page, "Download");
   await expect(page.locator(".dialog-icon")).toHaveCSS("background-color", "rgb(229, 229, 229)");
@@ -525,14 +527,14 @@ test("tools start below actions beside the document title and file actions use a
       await page.setViewportSize(size);
       for (let appearance = 0; appearance < 2; appearance++) {
         await page.locator(".header-actions .icon-button").click();
-        for (const [selector, label] of [[".open-action", locale === "EN" ? "Open image" : "Abrir imagen"], [".action-bar .primary", locale === "EN" ? "Download" : "Descargar"]]) {
+        for (const [selector, label] of [[".open-action", locale === "EN" ? "Open image" : "Abrir imagen"], [".paste-action", locale === "EN" ? "Paste image" : "Pegar imagen"], [".action-bar .primary", locale === "EN" ? "Download" : "Descargar"]]) {
           const action = page.locator(selector);
           await expect(action).toHaveText("");
           await expect(action).toHaveAttribute("aria-label", label);
           await expect(action).toHaveAttribute("title", label);
           await expect(action.locator("svg")).toBeVisible();
           const rect = await action.boundingBox();
-          const undo = await page.locator(".action-bar button").nth(1).boundingBox();
+          const undo = await page.locator(".action-bar").getByRole("button", { name: locale === "EN" ? "Undo" : "Deshacer", exact: true }).boundingBox();
           expect(rect.width).toBe(rect.height);
           expect(rect.height).toBe(undo.height);
         }
@@ -559,7 +561,9 @@ test("tools start below actions beside the document title and file actions use a
           } else {
             expect(title.x).toBe(0);
             expect(bottom.width).toBe(size.width);
-            expect(tools.y).toBeCloseTo(bottom.y + bottom.height, 0);
+            const actions = await page.locator(".action-bar").boundingBox();
+            expect(tools.y).toBeCloseTo(actions.y + actions.height, 0);
+            expect(title.y).toBeCloseTo(tools.y + tools.height, 0);
           }
         }
       }
@@ -639,4 +643,246 @@ test("file and rectangle icons stay distinct and zoom labels stay accessible", a
     await expect(page.locator(".zoom-input")).toHaveCSS("font-size", "11px");
     await expect(page.locator(".site-footer")).toHaveCSS("font-size", "13px");
   }
+});
+
+
+async function pasteFixture(page, { name = "pasted.png", type = "image/png", bytes = [...fixture()], text = "", target = "body" } = {}) {
+  return page.evaluate(({ name, type, bytes, text, target }) => {
+    const data = new DataTransfer();
+    if (text) data.items.add(text, "text/plain");
+    if (bytes) data.items.add(new File([new Uint8Array(bytes)], name, { type }));
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", { value: data });
+    document.querySelector(target).dispatchEvent(event);
+    return event.defaultPrevented;
+  }, { name, type, bytes, text, target });
+}
+
+async function mockClipboard(page, mode = "image") {
+  await page.evaluate(({ bytes, mode }) => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: mode === "missing" ? undefined : {
+      read: () => {
+        window.clipboardReads = (window.clipboardReads || 0) + 1;
+        if (mode === "denied") return Promise.reject(new DOMException("Blocked", "NotAllowedError"));
+        const items = mode === "empty" ? [] : mode === "text" ? [{ types: ["text/plain"] }] : [{
+          types: ["text/plain", "image/png"],
+          getType: async () => new Blob([new Uint8Array(bytes)], { type: "image/png" }),
+        }];
+        if (mode === "delayed") return new Promise(resolve => { window.finishClipboardRead = () => resolve(items); });
+        return Promise.resolve(items);
+      },
+    } });
+  }, { bytes: [...fixture()], mode });
+}
+
+test("native paste opens the first supported image in mixed content and exports its pixels", async ({ page }) => {
+  await page.goto("/");
+  expect(await pasteFixture(page, { text: "Copied image", name: "" })).toBe(true);
+  await expect(page.locator(".image-name")).toHaveText("clipboard.png");
+  await expect(page.locator(".image-dimensions")).toHaveText("160 × 100 px");
+  expect(PNG.sync.read((await download(page)).bytes).data).toEqual(PNG.sync.read(fixture()).data);
+  await draw(page);
+});
+
+test("clipboard button reads on demand and resets history only after accepting pending edits", async ({ page }) => {
+  await openImage(page);
+  await draw(page);
+  await mockClipboard(page);
+  expect(await page.evaluate(() => window.clipboardReads || 0)).toBe(0);
+  page.once("dialog", dialog => dialog.dismiss());
+  await page.locator(".paste-action").click();
+  await expect(page.locator(".paste-action")).toBeEnabled();
+  await expect(page.locator(".image-name")).toHaveText("test.png");
+  await expect(page.locator(".region-row")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Undo", exact: true })).toBeEnabled();
+  page.once("dialog", dialog => dialog.accept());
+  await page.locator(".paste-action").click();
+  await expect(page.locator(".image-name")).toHaveText("clipboard.png");
+  await expect(page.locator(".region-row")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Undo", exact: true })).toBeDisabled();
+  expect(await page.evaluate(() => window.clipboardReads)).toBe(2);
+});
+
+test("paste skips confirmation for untouched and downloaded images", async ({ page }) => {
+  await openImage(page);
+  let dialogs = 0;
+  page.on("dialog", async dialog => { dialogs++; await dialog.dismiss(); });
+  await pasteFixture(page);
+  await expect(page.locator(".image-name")).toHaveText("pasted.png");
+  await draw(page);
+  await download(page);
+  await pasteFixture(page, { name: "after-export.png" });
+  await expect(page.locator(".image-name")).toHaveText("after-export.png");
+  expect(dialogs).toBe(0);
+});
+
+for (const mode of ["empty", "text", "denied", "missing"]) {
+  test(`clipboard ${mode} preserves the document and provides localized feedback`, async ({ page }) => {
+    await openImage(page);
+    await draw(page);
+    await page.getByRole("link", { name: "ES", exact: true }).click();
+    await mockClipboard(page, mode);
+    await page.locator(".paste-action").click();
+    await expect(page.getByRole("alert")).toContainText(mode === "empty" || mode === "text" ? "no contiene una imagen" : "Ctrl/⌘+V");
+    await expect(page.locator(".image-name")).toHaveText("test.png");
+    await expect(page.locator(".region-row")).toHaveCount(1);
+    await expect(page.locator(".paste-action")).toBeEnabled();
+  });
+}
+
+test("invalid clipboard images preserve edits, while plain text is left alone", async ({ page }) => {
+  await openImage(page);
+  await draw(page);
+  expect(await pasteFixture(page, { bytes: null, text: "hello" })).toBe(false);
+  expect(await pasteFixture(page, { type: "image/gif" })).toBe(true);
+  await expect(page.getByRole("alert")).toContainText("PNG, JPEG or WebP");
+  page.once("dialog", dialog => dialog.accept());
+  await pasteFixture(page, { bytes: [1, 2, 3] });
+  await expect(page.getByRole("alert")).toContainText("could not be opened");
+  await expect(page.locator(".image-name")).toHaveText("test.png");
+  await expect(page.locator(".region-row")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Undo", exact: true })).toBeEnabled();
+});
+
+test("oversized pasted images are rejected before replacing the document", async ({ page }) => {
+  await openImage(page);
+  await page.evaluate(() => {
+    Object.defineProperty(HTMLImageElement.prototype, "width", { configurable: true, get: () => 8001 });
+    Object.defineProperty(HTMLImageElement.prototype, "height", { configurable: true, get: () => 4000 });
+  });
+  await pasteFixture(page);
+  await expect(page.getByRole("alert")).toContainText("32 megapixels");
+  await expect(page.locator(".image-name")).toHaveText("test.png");
+});
+
+test("paste respects editable fields and export and settings dialogs", async ({ page }) => {
+  await openImage(page);
+  for (const target of [".zoom-input", "#block"]) {
+    expect(await pasteFixture(page, { target })).toBe(false);
+  }
+  await page.evaluate(() => {
+    const editable = document.createElement("div");
+    editable.contentEditable = "true";
+    editable.id = "paste-editable";
+    document.body.appendChild(editable);
+  });
+  expect(await pasteFixture(page, { target: "#paste-editable" })).toBe(false);
+  await imageAction(page, "Download");
+  expect(await pasteFixture(page)).toBe(false);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.getByRole("button", { name: "Settings and regions", exact: true }).click();
+  expect(await pasteFixture(page)).toBe(false);
+  await expect(page.locator(".image-name")).toHaveText("test.png");
+});
+
+test("pending clipboard reads cannot overwrite a newer file or import a second paste", async ({ page }) => {
+  await openImage(page);
+  await mockClipboard(page, "delayed");
+  await page.locator(".paste-action").click();
+  await expect(page.locator(".paste-action")).toBeDisabled();
+  expect(await pasteFixture(page)).toBe(false);
+  await page.getByTestId("file-input").setInputFiles({ name: "newer.png", mimeType: "image/png", buffer: fixture() });
+  await expect(page.locator(".image-name")).toHaveText("newer.png");
+  await page.evaluate(() => window.finishClipboardRead());
+  await expect(page.locator(".paste-action")).toBeEnabled();
+  await expect(page.locator(".image-name")).toHaveText("newer.png");
+});
+
+
+test("mobile footer, tools and floating zoom fit both languages and themes", async ({ page }) => {
+  await openImage(page);
+  for (const locale of ["EN", "ES"]) {
+    await page.getByRole("link", { name: locale, exact: true }).click();
+    for (const width of [320, 375, 680]) {
+      await page.setViewportSize({ width, height: 812 });
+      for (let theme = 0; theme < 2; theme++) {
+        await page.locator(".header-actions .icon-button").click();
+        await expect(page.locator(".footer-privacy")).toBeVisible();
+        await expect(page.locator(".footer-privacy svg")).toBeVisible();
+        await expect(page.locator(".footer-privacy strong")).toBeVisible();
+        await expect(page.locator(".footer-privacy p")).toBeHidden();
+        await expect(page.locator(".zoom-input")).toHaveCount(0);
+        const footer = await page.locator(".site-footer").boundingBox();
+        const copyright = await page.locator(".site-footer > span").boundingBox();
+        const privacy = await page.locator(".footer-privacy").boundingBox();
+        expect(privacy.x + privacy.width / 2).toBeCloseTo(width / 2, 0);
+        expect(privacy.y).toBeGreaterThanOrEqual(footer.y);
+        expect(privacy.y + privacy.height).toBeLessThanOrEqual(copyright.y);
+        expect(copyright.x + copyright.width / 2).toBeCloseTo(width / 2, 0);
+        expect(copyright.y).toBeGreaterThanOrEqual(footer.y);
+        expect(copyright.y + copyright.height).toBeLessThanOrEqual(footer.y + footer.height);
+        const tools = await page.locator(".toolbar").boundingBox();
+        const first = await page.locator(".tool-select").boundingBox();
+        const settings = await page.locator(".settings-action").boundingBox();
+        expect(first.x - tools.x).toBe(8);
+        expect(tools.x + tools.width - settings.x - settings.width).toBe(8);
+        expect(settings.width).toBe(44);
+        const canvas = await page.locator(".canvas-area").boundingBox();
+        const zoom = page.locator(".mobile-zoom-controls");
+        const box = await zoom.boundingBox();
+        expect(box.y - canvas.y).toBe(8);
+        expect(canvas.x + canvas.width - box.x - box.width).toBe(8);
+        await expect(zoom.getByRole("button")).toHaveCount(3);
+        for (const button of await zoom.getByRole("button").all()) {
+          const rect = await button.boundingBox();
+          expect(rect.width).toBe(44);
+          expect(rect.height).toBe(44);
+          await expect(button).toHaveAttribute("title", await button.getAttribute("aria-label"));
+        }
+        await expect(zoom.locator("svg.lucide-zoom-out")).toBeVisible();
+        await expect(zoom.locator("svg.lucide-zoom-in")).toBeVisible();
+        await expect(zoom.locator("svg.lucide-maximize")).toBeVisible();
+        expect((await page.locator(".canvas-bottom").boundingBox()).height).toBe(32);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+      }
+    }
+  }
+});
+
+test("mobile zoom changes scale without editing and survives viewport and settings changes", async ({ page, browserName }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await openImage(page);
+  await draw(page);
+  const canvas = page.getByTestId("editor-canvas");
+  const outsideImageAlpha = () => canvas.evaluate(c => c.getContext("2d").getImageData(Math.floor(c.width / 2 + 90 * c.width / c.getBoundingClientRect().width), Math.floor(c.height / 2), 1, 1).data[3]);
+  await expect.poll(outsideImageAlpha).toBe(0);
+  const zoom = page.locator(".mobile-zoom-controls");
+  const position = await zoom.boundingBox();
+  await zoom.getByRole("button", { name: "Zoom in", exact: true }).click();
+  await expect.poll(outsideImageAlpha).toBe(255);
+  expect(await zoom.boundingBox()).toEqual(position);
+  await zoom.getByRole("button", { name: "Zoom out", exact: true }).click();
+  await expect.poll(outsideImageAlpha).toBe(0);
+  await zoom.getByRole("button", { name: "Zoom in", exact: true }).click();
+  await page.locator(".settings-action").click();
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  await expect(page.locator(".settings-action")).toBeFocused();
+  await page.setViewportSize({ width: 681, height: 900 });
+  await expect(page.locator(".mobile-zoom-controls")).toHaveCount(0);
+  await expect(page.locator(".zoom-input")).toHaveValue("120");
+  await expect(page.locator(".footer-privacy")).toBeVisible();
+  await page.setViewportSize({ width: 375, height: 812 });
+  await zoom.getByRole("button", { name: "Fit to view", exact: true }).click();
+  await expect.poll(outsideImageAlpha).toBe(0);
+  await page.locator(".tool-pan").focus();
+  await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+  await expect(page.locator(".settings-action")).toBeFocused();
+  await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+  await expect(page.getByRole("button", { name: "Close image", exact: true })).toBeFocused();
+  await page.locator(".settings-action").click();
+  await expect(page.locator(".region-row")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+});
+
+test("mobile empty state has no floating zoom and closing an image removes it", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.goto("/");
+  await expect(page.locator(".mobile-zoom-controls, .zoom-input")).toHaveCount(0);
+  await expect(page.locator(".tool-rect")).toBeVisible();
+  await openImage(page);
+  await expect(page.locator(".mobile-zoom-controls")).toBeVisible();
+  await imageAction(page, "Close");
+  await expect(page.locator(".mobile-zoom-controls, .zoom-input")).toHaveCount(0);
+  await expect(page.locator(".empty-state")).toBeVisible();
 });
