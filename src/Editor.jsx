@@ -11,7 +11,7 @@ export default function Editor({
   diameter,
   zoom,
   setZoom,
-  fitToken,
+  viewRequest,
   t,
   theme,
   sampleHint,
@@ -21,13 +21,12 @@ export default function Editor({
     canvas = useRef(),
     gesture = useRef(),
     space = useRef(false),
-    offscreen = useRef();
+    offscreen = useRef(),
+    appliedView = useRef();
   const [size, setSize] = useState({ w: 600, h: 500 }),
     [pan, setPan] = useState({ x: 0, y: 0 }),
     [draft, setDraft] = useState(null),
     [cursor, setCursor] = useState(null);
-  const fit = () =>
-    Math.min((size.w - 80) / image.width, (size.h - 80) / image.height, 1);
   const scale = zoom,
     origin = {
       x: (size.w - image.width * scale) / 2 + pan.x,
@@ -53,9 +52,14 @@ export default function Editor({
     return () => ro.disconnect();
   }, []);
   useEffect(() => {
-    setZoom(fit());
+    if (!wrap.current || size.w <= 0 || size.h <= 0) return;
+    if (appliedView.current?.image === image && appliedView.current?.request === viewRequest) return;
+    const rect = wrap.current.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    setZoom(Math.max(0.05, Math.min((rect.width - 80) / image.width, (rect.height - 80) / image.height, 1)));
     setPan({ x: 0, y: 0 });
-  }, [image, fitToken, size.w, size.h]);
+    appliedView.current = { image, request: viewRequest };
+  }, [image, viewRequest, size.w, size.h]);
   useEffect(() => {
     const down = (e) => {
       if (

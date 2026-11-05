@@ -1,9 +1,9 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import {
   ArrowUpRight,
-  ImagePlus,
+  FolderOpen,
   MousePointer2,
-  Scan,
+  Square,
   Paintbrush,
   Hand,
   Undo2,
@@ -19,7 +19,8 @@ import {
   X,
   Check,
   Image as ImageIcon,
-  Menu,
+  PanelRightClose,
+  PanelRightOpen,
   SlidersHorizontal,
   ShieldCheck,
   Layers,
@@ -33,12 +34,73 @@ import { localePath, pathLocale, renderGuide, seo, updatePageMetadata } from "./
 const DEFAULT_BLOCK = 35;
 const DEFAULT_DIAMETER = 45;
 
-function IconButton({ label, children, ...props }) {
+function IconButton({ label, children, className = "", ...props }) {
   return (
-    <button className="icon-button" title={label} aria-label={label} {...props}>
+    <button className={`icon-button ${className}`} title={label} aria-label={label} {...props}>
       {children}
     </button>
   );
+}
+function ZoomInput({ zoom, setZoom, disabled, label }) {
+  const [draft, setDraft] = useState(null);
+  const canceled = useRef(false);
+  const formatted = String(Math.round(zoom * 1000) / 10);
+  const commit = () => {
+    if (!canceled.current && draft !== null) {
+      const value = draft.trim().replace(",", ".");
+      const percent = Number(value);
+      if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(value) && Number.isFinite(percent)) {
+        setZoom(Math.max(0.05, Math.min(8, percent / 100)));
+      }
+    }
+    canceled.current = false;
+    setDraft(null);
+  };
+  return <span className="zoom-value">
+    <input
+      type="text"
+      inputMode="decimal"
+      className="zoom-input"
+      aria-label={label}
+      disabled={disabled}
+      value={disabled ? "—" : draft ?? formatted}
+      onFocus={e => { setDraft(formatted); e.currentTarget.select(); }}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => {
+        if (e.key === "Enter" || e.key === "Escape") {
+          e.preventDefault();
+          canceled.current = e.key === "Escape";
+          e.currentTarget.blur();
+        }
+      }}
+    />
+    <span aria-hidden="true">%</span>
+  </span>;
+}
+function BlockPreview({ block, label }) {
+  const ref = useRef();
+  useEffect(() => {
+    const canvas = ref.current;
+    const ctx = canvas.getContext("2d");
+    // Two backing pixels per CSS pixel keep half-pixel cells sharp and opaque.
+    ctx.setTransform(2, 0, 0, 2, 0, 0);
+    const cell = block / 2;
+    // Keep the central grid intersection fixed as cells grow in every direction.
+    const center = 60;
+    const first = Math.floor(-center / cell);
+    const last = Math.ceil(center / cell);
+    for (let row = first; row < last; row++) {
+      for (let col = first; col < last; col++) {
+        let seed = Math.imul(col + 1, 374761393) ^ Math.imul(row + 7, 668265263);
+        seed = Math.imul(seed ^ (seed >>> 13), 1274126177);
+        const gray = 40 + ((seed ^ (seed >>> 16)) >>> 0) % 186;
+        ctx.fillStyle = `rgb(${gray}, ${gray}, ${gray})`;
+        ctx.fillRect(center + col * cell, center + row * cell, cell, cell);
+      }
+    }
+  }, [block]);
+  return <canvas ref={ref} className="block-preview" width="240" height="240" role="img" aria-label={label} data-cell-size={block / 2} />;
 }
 function PixelLogo() {
   return (
@@ -58,10 +120,10 @@ export default function App() {
     ),
   );
   const t = messages[lang];
-  const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [narrow, setNarrow] = useState(() => matchMedia("(max-width: 680px)").matches);
-  const menuRef = useRef(), menuButton = useRef(), settingsDialog = useRef();
+  const settingsDialog = useRef(), settingsButton = useRef(), footerRef = useRef();
   useEffect(() => {
     const media = matchMedia("(max-width: 680px)");
     const change = () => { setNarrow(media.matches); setSettingsOpen(false); };
@@ -70,18 +132,18 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (settingsOpen) settingsDialog.current?.showModal();
-    else settingsDialog.current?.close();
+    else if (settingsDialog.current?.open) {
+      settingsDialog.current.close();
+      settingsButton.current?.focus({ preventScroll: true });
+    }
   }, [settingsOpen, narrow]);
   useEffect(() => {
-    if (!menuOpen) return;
-    menuRef.current?.querySelector('[role="menuitem"]:not(:disabled)')?.focus();
-    const outside = e => {
-      if (!menuRef.current?.contains(e.target)) setMenuOpen(false);
-    };
-    document.addEventListener("pointerdown", outside);
-    return () => document.removeEventListener("pointerdown", outside);
-  }, [menuOpen]);
-  const closeMenu = () => { setMenuOpen(false); menuButton.current?.focus(); };
+    const observer = new ResizeObserver(([entry]) => {
+      document.documentElement.style.setProperty("--footer-height", `${entry.borderBoxSize?.[0]?.blockSize ?? footerRef.current.getBoundingClientRect().height}px`);
+    });
+    observer.observe(footerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   const [history, dispatch] = useReducer(historyReducer, initialHistory),
     ops = history.present;
@@ -91,7 +153,7 @@ export default function App() {
     [diameter, setDiameter] = useState(DEFAULT_DIAMETER),
     [selected, setSelected] = useState(null),
     [zoom, setZoom] = useState(1),
-    [fitToken, setFitToken] = useState(0),
+    [viewRequest, setViewRequest] = useState({ mode: "fit", token: 0 }),
     [format, setFormat] = useState("png"),
     [exportOpen, setExportOpen] = useState(false),
     [busy, setBusy] = useState(false),
@@ -175,7 +237,7 @@ export default function App() {
         ["INPUT", "SELECT", "TEXTAREA"].includes(
           document.activeElement.tagName,
         ) ||
-        exportOpen || menuOpen || settingsOpen
+        exportOpen || settingsOpen
       )
         return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
@@ -197,7 +259,7 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [ops, selected, exportOpen, menuOpen, settingsOpen]);
+  }, [ops, selected, exportOpen, settingsOpen]);
   function closeImage() {
     if (dirty && !window.confirm(t.closeImageConfirm)) return;
     loadId.current++;
@@ -215,7 +277,7 @@ export default function App() {
     setBlock(DEFAULT_BLOCK);
     setDiameter(DEFAULT_DIAMETER);
     setZoom(1);
-    setFitToken(0);
+    setViewRequest({ mode: "fit", token: 0 });
     setFormat("png");
     setSlider(null);
     setExportOpen(false);
@@ -333,7 +395,7 @@ export default function App() {
   }
   const tools = [
     ["select", MousePointer2, t.select, "V"],
-    ["rect", Scan, t.rect, "R"],
+    ["rect", Square, t.rect, "R"],
     ["brush", Paintbrush, t.brush, "B"],
     ["pan", Hand, t.pan, "H"],
   ];
@@ -376,14 +438,8 @@ export default function App() {
           <span>96 px</span>
         </div>
         <div className="size-preview">
-          <div
-            className="block-preview"
-            role="img"
-            aria-label={`${t.block}: ${effectiveBlock} px`}
-            style={{ "--preview-cell": `${effectiveBlock / 2}px` }}
-          />
+          <BlockPreview block={effectiveBlock} label={`${t.block}: ${effectiveBlock} px`} />
         </div>
-        {tool === "brush" && (
           <div className="brush-settings">
             <div className="range-label">
               <label htmlFor="diameter">{t.diameter}</label>
@@ -410,7 +466,6 @@ export default function App() {
               </div>
             </div>
           </div>
-        )}
       </section>
       <section className="regions">
         <div className="section-title">
@@ -455,7 +510,7 @@ export default function App() {
                 >
                   <span className="region-icon">
                     {op.kind === "rect" ? (
-                      <Scan size={16} />
+                      <Square size={16} />
                     ) : (
                       <Paintbrush size={16} />
                     )}
@@ -480,13 +535,6 @@ export default function App() {
           </ol>
         )}
       </section>
-      <div className="privacy-card">
-        <ShieldCheck size={19} aria-hidden="true" />
-        <div>
-          <strong>{t.private}</strong>
-          <p>{t.privateLong}</p>
-        </div>
-      </div>
     </>
   );
   return (
@@ -567,52 +615,10 @@ export default function App() {
         </div>
       </header>
       <main>
-        <section className="studio">
-          <nav className="toolbar" aria-label={t.tools}>
-            <div className="file-menu" ref={menuRef}>
-              <button className="icon-button" ref={menuButton} aria-label={t.imageActions}
-                title={t.imageActions} aria-haspopup="menu" aria-expanded={menuOpen}
-                aria-controls="image-menu" onClick={() => setMenuOpen(v => !v)}
-                onKeyDown={e => { if (e.key === "ArrowDown") { e.preventDefault(); setMenuOpen(true); } }}>
-                <Menu size={20} />
-              </button>
-              {menuOpen && <div id="image-menu" role="menu" aria-label={t.imageActions}
-                onKeyDown={e => {
-                  const items = [...e.currentTarget.querySelectorAll('button:not(:disabled)')];
-                  const i = items.indexOf(document.activeElement);
-                  if (e.key === "Escape") { e.preventDefault(); closeMenu(); }
-                  if (e.key === "Tab") closeMenu();
-                  if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
-                    e.preventDefault();
-                    const next = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 :
-                      (i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-                    items[next]?.focus();
-                  }
-                }}>
-                <button role="menuitem" disabled={busy} onClick={() => { closeMenu(); fileInput.current.click(); }}><ImagePlus size={16} />{t.open}</button>
-                <button role="menuitem" disabled={!image || busy} onClick={() => { closeMenu(); setExportOpen(true); }}><Download size={16} />{t.download}</button>
-                <button role="menuitem" disabled={!image || busy} onClick={() => { closeMenu(); closeImage(); }}><X size={16} />{t.close}</button>
-              </div>}
-            </div>
-            {tools.map(([id, Icon, label, key]) => (
-              <button
-                key={id}
-                className={`tool ${tool === id ? "active" : ""}`}
-                aria-label={label}
-                aria-pressed={tool === id}
-                title={`${label} (${key})`}
-                onClick={() => {
-                  setTool(id);
-                  if (id !== "select") setSelected(null);
-                  setSlider(null);
-                }}
-              >
-                <Icon size={20} />
-                <span>{label}</span>
-                <kbd>{key}</kbd>
-              </button>
-            ))}
-            <span className="toolbar-spacer" />
+        <section className={`studio ${panelCollapsed ? "panel-collapsed" : ""}`}>
+          <nav className="action-bar" aria-label={t.imageActions}>
+            <IconButton className="secondary open-action" label={t.open} disabled={busy} onClick={() => fileInput.current.click()}><FolderOpen size={18} /></IconButton>
+            <span className="action-divider" />
             <IconButton
               label={t.undo}
               disabled={!history.past.length}
@@ -627,11 +633,39 @@ export default function App() {
             >
               <Redo2 size={18} />
             </IconButton>
-            {narrow && <IconButton label={t.settings} onClick={() => setSettingsOpen(true)}>
+            <span className="toolbar-spacer" />
+            <IconButton className="primary" label={t.download} disabled={!image || busy} onClick={() => setExportOpen(true)}><Download size={18} /></IconButton>
+          </nav>
+          {image && <div className="document-bar">
+            <ImageIcon size={16} aria-hidden="true" />
+            <span className="image-name" title={image.name}>{image.name}</span>
+            <IconButton label={t.closeImage} disabled={busy} onClick={closeImage}><X size={16} /></IconButton>
+          </div>}
+          <nav className="toolbar" aria-label={t.tools}>
+            {tools.map(([id, Icon, label, key]) => (
+              <button
+                key={id}
+                className={`tool tool-${id} ${tool === id ? "active" : ""}`}
+                aria-label={label}
+                aria-pressed={tool === id}
+                title={`${label} (${key})`}
+                onClick={() => {
+                  setTool(id);
+                  if (id !== "select") setSelected(null);
+                  setSlider(null);
+                }}
+              >
+                <Icon size={20} />
+              </button>
+            ))}
+            {narrow && <IconButton ref={settingsButton} label={t.settings} onClick={() => setSettingsOpen(true)}>
               <SlidersHorizontal size={18} />
             </IconButton>}
           </nav>
-          <div className="canvas-area">
+          <div className="canvas-area" onWheelCapture={() => {
+            const focused = document.activeElement;
+            if (focused?.classList.contains("zoom-input")) focused.blur();
+          }}>
             {image ? (
               <Editor
                 image={image}
@@ -647,7 +681,7 @@ export default function App() {
                 diameter={diameter}
                 zoom={zoom}
                 setZoom={setZoom}
-                fitToken={fitToken}
+                viewRequest={viewRequest}
                 t={t}
                 theme={theme}
                 sampleHint={image.isSample && ops.length === 0 ? t.sampleHint : null}
@@ -681,55 +715,63 @@ export default function App() {
                 <details className="image-guide" dangerouslySetInnerHTML={{ __html: renderGuide(lang) }} />
               </div>
             )}
-            <div className="canvas-bottom">
-              <span>
-                <span className={`status-dot ${image ? "loaded" : ""}`} />
-                {image ? <>
-                  <span className="image-name" title={image.name}>{image.name}</span>
-                  <span className="image-dimensions">· {image.width.toLocaleString(lang)} × {image.height.toLocaleString(lang)} px</span>
-                </> : t.ready}
-              </span>
-              <div className="zoom-controls">
-                <IconButton
-                  label={t.zoomOut}
-                  disabled={!image}
-                  onClick={() => setZoom((z) => Math.max(0.05, z / 1.2))}
-                >
-                  <Minus size={14} />
-                </IconButton>
-                <span>{image ? `${Math.round(zoom * 100)}%` : "—"}</span>
-                <IconButton
-                  label={t.zoomIn}
-                  disabled={!image}
-                  onClick={() => setZoom((z) => Math.min(8, z * 1.2))}
-                >
-                  <Plus size={14} />
-                </IconButton>
-                <span className="zoom-divider" />
-                <IconButton
-                  label={t.fit}
-                  disabled={!image}
-                  onClick={() => setFitToken((n) => n + 1)}
-                >
-                  <Maximize size={15} />
-                </IconButton>
-              </div>
+          </div>
+          <div className="canvas-bottom">
+            <span>
+              <span className={`status-dot ${image ? "loaded" : ""}`} />
+              {image ? <>
+                <span className="image-dimensions">{image.width.toLocaleString(lang)} × {image.height.toLocaleString(lang)} px</span>
+              </> : t.ready}
+            </span>
+            <div className="zoom-controls">
+              <IconButton
+                label={t.zoomOut}
+                disabled={!image}
+                onClick={() => setZoom((z) => Math.max(0.05, z / 1.2))}
+              >
+                <Minus size={14} />
+              </IconButton>
+              <ZoomInput zoom={zoom} setZoom={setZoom} disabled={!image} label={t.zoomPercent} />
+              <IconButton
+                label={t.zoomIn}
+                disabled={!image}
+                onClick={() => setZoom((z) => Math.min(8, z * 1.2))}
+              >
+                <Plus size={14} />
+              </IconButton>
+              <span className="zoom-divider" />
+              <IconButton
+                label={t.fit}
+                disabled={!image}
+                onClick={() => setViewRequest(v => ({ mode: "fit", token: v.token + 1 }))}
+              >
+                <Maximize size={15} />
+              </IconButton>
             </div>
           </div>
-          {!narrow && <aside className="panel">{settingsPanel}</aside>}
+          {!narrow && <aside className="panel">
+            <div className="panel-heading">
+              {!panelCollapsed && <strong>{t.settings}</strong>}
+              <IconButton label={panelCollapsed ? t.expandSettings : t.collapseSettings} aria-expanded={!panelCollapsed} aria-controls="settings-content" onClick={() => setPanelCollapsed(v => !v)}>
+                {panelCollapsed ? <PanelRightOpen size={18} /> : <PanelRightClose size={18} />}
+              </IconButton>
+            </div>
+            <div id="settings-content" hidden={panelCollapsed}>{settingsPanel}</div>
+          </aside>}
 
         </section>
-        <footer className="site-footer">
+        <footer className="site-footer" ref={footerRef}>
           <span>
-            @pixban 2026 - Designed by {" "}
+            @pixban 2026 by {" "}
             <a href="https://juanaylola.com/" target="_blank" rel="noopener noreferrer">
               Juana y Lola
             </a>
           </span>
+          <div className="footer-privacy"><ShieldCheck size={19} aria-hidden="true" /><div><strong>{t.private}</strong><p>{t.privateLong}</p></div></div>
         </footer>
       </main>
       {narrow && <dialog className="settings-dialog" ref={settingsDialog}
-        aria-label={t.settings} onCancel={() => setSettingsOpen(false)}
+        aria-label={t.settings} onCancel={e => { e.preventDefault(); setSettingsOpen(false); }}
         onClick={e => { if (e.target === settingsDialog.current) setSettingsOpen(false); }}>
         <div className="settings-dialog-header"><strong>{t.settings}</strong>
           <IconButton label={t.closeSettings} onClick={() => setSettingsOpen(false)}><X size={18} /></IconButton>
