@@ -48,8 +48,8 @@ async function expectSelectionColor(page, theme) {
   }, theme)).toBe(true);
 }
 async function imageAction(page, name) {
-  await page.locator(".file-menu > button").click();
-  await page.getByRole("menuitem", { name, exact: true }).click();
+  const close = ["Close", "Cerrar"].includes(name);
+  await page.locator(close ? ".document-bar" : ".action-bar").getByRole("button", { name: close ? (name === "Close" ? "Close image" : "Cerrar imagen") : name, exact: true }).click();
 }
 async function download(page, format = "png") {
   await imageAction(page, "Download");
@@ -69,7 +69,7 @@ test("English default, language and theme persistence", async ({ page }) => {
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await page.getByRole("link", { name: "ES", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Abrir imagen", exact: true }),
+    page.locator(".action-bar").getByRole("button", { name: "Abrir imagen", exact: true }),
   ).toHaveCount(1);
   await page.getByLabel("Cambiar tema de color").click();
   const theme = await page.locator("html").getAttribute("data-theme");
@@ -157,9 +157,7 @@ test("initial canvas render is centered before user interaction", async ({
 
 test("reset cancels safely, clears history and restores defaults while preserving preferences", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".file-menu > button").click();
-  await expect(page.getByRole("menuitem", { name: "Close", exact: true })).toBeDisabled();
-  await page.keyboard.press("Escape");
+  await expect(page.locator(".document-bar")).toHaveCount(0);
   await expect(page.locator("#block")).toHaveValue("35");
   await page.getByRole("button", { name: "Brush", exact: true }).click();
   await expect(page.locator("#diameter")).toHaveValue("45");
@@ -187,9 +185,7 @@ test("reset cancels safely, clears history and restores defaults while preservin
   await expect(page.getByRole("button", { name: "Rectángulo", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "Deshacer", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Rehacer", exact: true })).toBeDisabled();
-  await page.locator(".file-menu > button").click();
-  await expect(page.getByRole("menuitem", { name: "Descargar", exact: true })).toBeDisabled();
-  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Descargar", exact: true })).toBeDisabled();
   await expect(page.locator("html")).toHaveAttribute("lang", "es");
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
   await page.getByRole("button", { name: "Pincel", exact: true }).click();
@@ -209,25 +205,25 @@ test("reset cancels safely, clears history and restores defaults while preservin
 test("size previews follow sliders and selected regions at a fixed half scale", async ({ page }) => {
   await openImage(page);
   const preview = page.locator(".block-preview");
-  const zoom = await page.locator(".zoom-controls > span").first().textContent();
+  const zoom = await page.locator(".zoom-input").inputValue();
   for (const value of [4, 35, 96]) {
     await page.locator("#block").fill(String(value));
-    await expect(preview).toHaveCSS("background-size", `${value}px ${value}px`);
-    await expect(preview).toHaveCSS("background-position", "50% 50%");
+    await expect(preview).toHaveAttribute("data-cell-size", String(value / 2));
+
   }
   await draw(page);
   await page.locator("#block").fill("50");
-  await expect(preview).toHaveCSS("background-size", "50px 50px");
+  await expect(preview).toHaveAttribute("data-cell-size", "25");
   await page.locator("#block").blur();
   await page.getByRole("button", { name: "Undo", exact: true }).click();
-  await expect(preview).toHaveCSS("background-size", "96px 96px");
+  await expect(preview).toHaveAttribute("data-cell-size", "48");
   await page.getByRole("button", { name: "Brush", exact: true }).click();
   for (const value of [8, 45, 240]) {
     await page.locator("#diameter").fill(String(value));
     await expect(page.locator(".brush-preview span")).toHaveCSS("width", `${value / 2}px`);
     await expect(page.locator(".brush-preview span")).toHaveCSS("height", `${value / 2}px`);
   }
-  await expect(page.locator(".zoom-controls > span").first()).toHaveText(zoom);
+  await expect(page.locator(".zoom-input")).toHaveValue(zoom);
   await page.locator("#diameter").press("ArrowLeft");
   await expect(page.locator(".brush-preview span")).toHaveCSS("width", "119.5px");
 });
@@ -247,17 +243,14 @@ test("header, attribution and previews remain available on mobile in both themes
       await page.getByRole("button", { name: locale === "EN" ? "Settings and regions" : "Ajustes y regiones", exact: true }).click();
       await expect(page.locator(".block-preview")).toBeVisible();
       await expect(page.locator(".brush-preview")).toBeVisible();
-      await page.locator(".privacy-card").scrollIntoViewIfNeeded();
-      await expect(page.locator(".privacy-card")).toBeVisible();
-      expect(await page.locator(".regions").evaluate(el => el.nextElementSibling?.classList.contains("privacy-card"))).toBe(true);
+      await expect(page.locator(".settings-dialog .footer-privacy")).toHaveCount(0);
       const drawer = await page.locator(".settings-dialog").boundingBox();
-      expect(Math.round(drawer.y + drawer.height)).toBe(812 - 52);
+      expect(Math.round(drawer.y + drawer.height)).toBe(Math.round((await page.locator(".site-footer").boundingBox()).y));
       await page.getByRole("button", { name: locale === "EN" ? "Close settings" : "Cerrar ajustes", exact: true }).click();
-      await expect(page.locator(".site-footer")).toContainText("@pixban 2026 - Designed by Juana y Lola");
+      await expect(page.locator(".site-footer")).toContainText("@pixban 2026 by Juana y Lola");
       await expect(page.locator(".site-footer a")).toBeVisible();
-      await expect(page.locator(".site-footer")).toHaveCSS("height", "52px");
       await expect(page.locator(".site-footer")).toHaveCSS("font-size", "13px");
-      await expect(page.locator(".site-footer")).toHaveCSS("text-align", "center");
+      await expect(page.locator(".site-footer")).toHaveCSS("text-align", "left");
       await expect(page.locator(".site-footer a")).toHaveAttribute("href", "https://juanaylola.com/");
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     }
@@ -304,28 +297,25 @@ test("sample car loads without edits, suggests the plate and exports edited pixe
   await expect(page.locator(".canvas-hint")).not.toContainText("license plate");
 });
 
-test("menu keyboard navigation and viewport layout", async ({ page }) => {
+test("visible actions support keyboard navigation and viewport layout", async ({ page, browserName }) => {
   await openImage(page);
-  const trigger = page.locator(".file-menu > button");
-  await trigger.focus();
-  await trigger.press("ArrowDown");
-  await expect(page.getByRole("menuitem", { name: "Open image", exact: true })).toBeFocused();
-  await page.keyboard.press("ArrowDown");
-  await expect(page.getByRole("menuitem", { name: "Download", exact: true })).toBeFocused();
-  await page.keyboard.press("End");
-  await expect(page.getByRole("menuitem", { name: "Close", exact: true })).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(trigger).toBeFocused();
+  const open = page.locator(".open-action");
+  await open.focus();
+  // Disabled history buttons are skipped in the native tab order.
+  await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+  await expect(page.locator(".action-bar .primary")).toBeFocused();
   await expect(page.getByRole("menu")).toHaveCount(0);
-  await trigger.click();
-  await page.locator(".brand").click();
-  await expect(page.getByRole("menu")).toHaveCount(0);
-  for (const size of [{ width: 1440, height: 900 }, { width: 375, height: 812 }, { width: 812, height: 375 }]) {
+  for (const size of [{ width: 1440, height: 900 }, { width: 320, height: 700 }, { width: 375, height: 812 }, { width: 812, height: 375 }]) {
     await page.setViewportSize(size);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight)).toBe(true);
     const studio = await page.locator(".studio").boundingBox();
     expect(Math.round(studio.x)).toBe(0);
     expect(Math.round(studio.width)).toBe(size.width);
+    if (size.width <= 680) {
+      const toolbar = await page.locator(".toolbar").boundingBox();
+      const canvas = await page.locator(".canvas-area").boundingBox();
+      expect(toolbar.y).toBeGreaterThanOrEqual(canvas.y + canvas.height - 1);
+    }
   }
 });
 
@@ -341,13 +331,13 @@ test("pixban branding and localized route preserve the legacy theme preference",
   await expect(page.locator("html")).toHaveAttribute("lang", "es");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(page.locator(".toolbar h1")).toHaveCount(0);
-  await expect(page.locator(".privacy-card")).toContainText("100 % local. Siempre privado.");
+  await expect(page.locator(".footer-privacy")).toContainText("100 % local. Siempre privado.");
   await page.getByTestId("file-input").setInputFiles({ name: "test.png", mimeType: "image/png", buffer: fixture() });
   await expect(page.getByTestId("editor-canvas")).toHaveAttribute("aria-label", "Editor de imagen");
 });
 
 
-test("light mode uses neutral fills and places privacy after a long region list", async ({ page }) => {
+test("light mode uses neutral fills and keeps footer privacy outside a long region list", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await openImage(page);
   await page.getByRole("button", { name: "Brush", exact: true }).click();
@@ -362,24 +352,291 @@ test("light mode uses neutral fills and places privacy after a long region list"
     await page.mouse.up();
   }
   await expect(page.locator(".region-row")).toHaveCount(12);
-  await page.locator(".privacy-card").scrollIntoViewIfNeeded();
-  await expect(page.locator(".privacy-card")).toBeVisible();
-  expect(await page.locator(".regions").evaluate(el => el.nextElementSibling?.classList.contains("privacy-card"))).toBe(true);
+  await page.locator(".footer-privacy").scrollIntoViewIfNeeded();
+  await expect(page.locator(".footer-privacy")).toBeVisible();
+  await expect(page.locator(".panel .footer-privacy")).toHaveCount(0);
   await page.setViewportSize({ width: 320, height: 700 });
   await page.getByRole("button", { name: "Settings and regions", exact: true }).click();
-  await page.locator(".privacy-card").scrollIntoViewIfNeeded();
-  await expect(page.locator(".privacy-card")).toBeVisible();
-  expect(await page.locator(".regions").evaluate(el => el.getBoundingClientRect().bottom <= el.nextElementSibling.getBoundingClientRect().top)).toBe(true);
+  await expect(page.locator(".settings-dialog .footer-privacy")).toHaveCount(0);
   await page.keyboard.press("Escape");
-  await expect(page.locator(".site-footer")).toHaveCSS("text-align", "center");
+  await expect(page.locator(".site-footer")).toHaveCSS("text-align", "left");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await imageAction(page, "Download");
   await expect(page.locator(".dialog-icon")).toHaveCSS("background-color", "rgb(229, 229, 229)");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   page.once("dialog", dialog => dialog.accept());
   await imageAction(page, "Close");
-  await page.locator(".file-menu > button").click();
-  await expect(page.getByRole("menuitem", { name: "Download", exact: true })).toHaveCSS("opacity", "1");
-  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Download", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Undo", exact: true })).toHaveCSS("color", "rgb(115, 115, 115)");
+});
+
+test("collapsing the inspector preserves edits, manual zoom and the centered image point", async ({ page }) => {
+  await openImage(page);
+  await draw(page);
+  await page.locator("#diameter").fill("100");
+  await page.getByRole("button", { name: "Zoom in", exact: true }).click();
+  const canvas = page.getByTestId("editor-canvas");
+  await canvas.hover();
+  await page.mouse.wheel(15, 10);
+  const centerPixel = () => canvas.evaluate(c => [...c.getContext("2d").getImageData(Math.floor(c.width / 2), Math.floor(c.height / 2), 1, 1).data]);
+  const before = await canvas.boundingBox();
+  const pixel = await centerPixel();
+  const zoom = await page.locator(".zoom-input").inputValue();
+  const toggle = page.getByRole("button", { name: "Collapse settings and regions", exact: true });
+  await toggle.click();
+  await expect(page.locator("#settings-content")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Expand settings and regions" })).toHaveAttribute("aria-expanded", "false");
+  await expect.poll(async () => (await canvas.boundingBox()).width).toBeGreaterThan(before.width);
+  await expect(page.locator(".zoom-input")).toHaveValue(zoom);
+  await expect.poll(centerPixel).toEqual(pixel);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.getByRole("button", { name: "Settings and regions", exact: true }).click();
+  await expect(page.locator("#diameter")).toHaveValue("100");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Settings and regions", exact: true })).toBeFocused();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.locator("#settings-content")).toBeHidden();
+  await page.getByRole("button", { name: "Expand settings and regions" }).click();
+  await expect(page.locator(".region-row")).toHaveCount(1);
+  await expect(page.locator(".region-list li.selected")).toHaveCount(1);
+  await expect(page.locator("#diameter")).toHaveValue("100");
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.locator(".region-row")).toHaveCount(0);
+  await page.getByRole("button", { name: "Fit to view", exact: true }).click();
+  await expect(page.locator(".zoom-input")).toHaveValue("100");
+  await expect.poll(async () => (await centerPixel()).every((n, i) => Math.abs(n - [80, 100, 130, 255][i]) <= 2)).toBe(true);
+});
+
+test("grayscale mosaic is stable and brush size remains available with every tool", async ({ page }) => {
+  await openImage(page);
+  await page.locator("#block").fill("40");
+  const pixels = () => page.locator(".block-preview").evaluate(c => [...c.getContext("2d").getImageData(0, 0, c.width, c.height).data]);
+  const original = await pixels();
+  const tones = new Set();
+  let grayscale = true;
+  for (let i = 0; i < original.length; i += 4) {
+    grayscale &&= original[i] === original[i + 1] && original[i] === original[i + 2] && original[i + 3] === 255;
+    tones.add(original[i]);
+  }
+  expect(grayscale).toBe(true);
+  expect(tones.size).toBeGreaterThan(10);
+  await page.locator("#block").fill("35");
+  const fractional = await pixels();
+  await page.locator("#block").fill("41");
+  await page.locator("#block").fill("35");
+  expect(await pixels()).toEqual(fractional);
+  await page.locator("#block").fill("40");
+  // A full cell is flat, and distant cells are not a repeated checkerboard tile.
+  expect(original.slice(0, 4)).toEqual(original.slice(10 * 4, 10 * 4 + 4));
+  for (const tool of ["Select", "Rectangle", "Brush", "Pan"]) {
+    await page.getByRole("button", { name: tool, exact: true }).click();
+    await expect(page.locator("#diameter")).toBeVisible();
+    await expect(page.locator(".brush-preview")).toBeVisible();
+  }
+  await page.getByLabel("Toggle color theme").click();
+  await page.getByRole("link", { name: "ES", exact: true }).click();
+  expect(await pixels()).toEqual(original);
+  await expect(page.locator(".site-footer a")).toHaveCSS("text-decoration-line", "none");
+});
+
+test("block preview scales the same cells around a fixed center", async ({ page }) => {
+  await page.goto("/");
+  let reference;
+  for (const value of [4, 35, 40, 96]) {
+    await page.locator("#block").fill(String(value));
+    const samples = await page.locator(".block-preview").evaluate((canvas, block) => {
+      const ctx = canvas.getContext("2d");
+      const center = canvas.width / 2;
+      // Sample the four cells touching the center, both near the origin and
+      // halfway through each cell. Their colors must stay anchored at every scale.
+      return [-1, 1].flatMap(y => [-1, 1].map(x => ({
+        near: [...ctx.getImageData(center + (x < 0 ? -1 : 0), center + (y < 0 ? -1 : 0), 1, 1).data],
+        middle: [...ctx.getImageData(Math.floor(center + x * block / 2), Math.floor(center + y * block / 2), 1, 1).data],
+      })));
+    }, value);
+    const colors = samples.map(sample => sample.middle);
+    for (const sample of samples) expect(sample.near).toEqual(sample.middle);
+    reference ??= colors;
+    expect(colors).toEqual(reference);
+  }
+});
+
+test("desktop inspector starts below the logo and icon tools keep hints and shortcuts", async ({ page }) => {
+  await page.goto("/");
+  for (const locale of ["EN", "ES"]) {
+    await page.getByRole("link", { name: locale, exact: true }).click();
+    for (const width of [1440, 812, 681]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (let appearance = 0; appearance < 2; appearance++) {
+        await page.locator(".header-actions .icon-button").click();
+        for (const collapsed of [false, true]) {
+          const header = await page.locator(".header").boundingBox();
+          const panel = await page.locator(".panel").boundingBox();
+          const actions = await page.locator(".action-bar").boundingBox();
+          const tools = await page.locator(".toolbar").boundingBox();
+          expect(panel.y).toBeCloseTo(header.y + header.height, 0);
+          expect(actions.x + actions.width).toBeCloseTo(panel.x, 0);
+          expect(tools.width).toBe(52);
+          const bottom = await page.locator(".canvas-bottom").boundingBox();
+          expect(bottom.x).toBe(0);
+          expect(bottom.x + bottom.width).toBeCloseTo(panel.x, 0);
+          expect(tools.y).toBeCloseTo(actions.y + actions.height, 0);
+          const emptyCanvas = await page.locator(".canvas-area").boundingBox();
+          expect(emptyCanvas.y).toBeCloseTo(tools.y, 0);
+          expect(tools.y + tools.height).toBeCloseTo(bottom.y, 0);
+          for (const button of await page.locator(".action-bar > button").all()) {
+            const box = await button.boundingBox();
+            expect(box.x + box.width).toBeLessThanOrEqual(panel.x);
+          }
+          const toggle = page.locator(".panel-heading button");
+          await expect(toggle).toHaveAttribute("aria-expanded", String(!collapsed));
+          await toggle.click();
+        }
+      }
+    }
+    for (const [id, shortcut] of [["select", "V"], ["rect", "R"], ["brush", "B"], ["pan", "H"]]) {
+      const tool = page.locator(`.tool-${id}`);
+      await expect(tool).toHaveText("");
+      const label = await tool.getAttribute("aria-label");
+      expect(label.length).toBeGreaterThan(0);
+      await expect(tool).toHaveAttribute("title", `${label} (${shortcut})`);
+      const button = await tool.boundingBox();
+      const icon = await tool.locator("svg").boundingBox();
+      expect(icon.x + icon.width / 2).toBeCloseTo(button.x + button.width / 2, 0);
+      await page.keyboard.press(shortcut.toLowerCase());
+      await expect(tool).toHaveAttribute("aria-pressed", "true");
+    }
+  }
+});
+
+test("tools start below actions beside the document title and file actions use accessible icons", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".action-bar .primary")).toBeDisabled();
+  await expect(page.locator(".empty-state").getByRole("button", { name: "Open image", exact: true })).toHaveText("Open image");
+  const chooserReady = page.waitForEvent("filechooser");
+  await page.locator(".open-action").click();
+  await (await chooserReady).setFiles({ name: "test.png", mimeType: "image/png", buffer: fixture() });
+  await expect(page.getByTestId("editor-canvas")).toBeVisible();
+  await expect(page.locator(".document-bar > svg.lucide-image")).toBeVisible();
+  await expect(page.locator(".document-bar").getByRole("button", { name: "Close image", exact: true })).toBeVisible();
+  for (const locale of ["EN", "ES"]) {
+    await page.getByRole("link", { name: locale, exact: true }).click();
+    for (const size of [{width: 1440, height: 900}, {width: 812, height: 900}, {width: 681, height: 900}, {width: 375, height: 812}, {width: 320, height: 700}]) {
+      await page.setViewportSize(size);
+      for (let appearance = 0; appearance < 2; appearance++) {
+        await page.locator(".header-actions .icon-button").click();
+        for (const [selector, label] of [[".open-action", locale === "EN" ? "Open image" : "Abrir imagen"], [".action-bar .primary", locale === "EN" ? "Download" : "Descargar"]]) {
+          const action = page.locator(selector);
+          await expect(action).toHaveText("");
+          await expect(action).toHaveAttribute("aria-label", label);
+          await expect(action).toHaveAttribute("title", label);
+          await expect(action.locator("svg")).toBeVisible();
+          const rect = await action.boundingBox();
+          const undo = await page.locator(".action-bar button").nth(1).boundingBox();
+          expect(rect.width).toBe(rect.height);
+          expect(rect.height).toBe(undo.height);
+        }
+        for (let state = 0; state < (size.width > 680 ? 2 : 1); state++) {
+          const title = await page.locator(".document-bar").boundingBox();
+          const bottom = await page.locator(".canvas-bottom").boundingBox();
+          const tools = await page.locator(".toolbar").boundingBox();
+          const canvas = await page.locator(".canvas-area").boundingBox();
+          expect(bottom.x).toBe(0);
+          expect(title.x).toBeCloseTo(canvas.x, 0);
+          expect(title.width).toBeCloseTo(canvas.width, 0);
+          expect(canvas.y).toBeCloseTo(title.y + title.height, 0);
+          expect(canvas.y + canvas.height).toBeCloseTo(bottom.y, 0);
+          if (size.width > 680) {
+            const panel = await page.locator(".panel").boundingBox();
+            const actions = await page.locator(".action-bar").boundingBox();
+            expect(title.x).toBeCloseTo(tools.x + tools.width, 0);
+            expect(title.x + title.width).toBeCloseTo(panel.x, 0);
+            expect(bottom.width).toBeCloseTo(panel.x, 0);
+            expect(tools.y).toBeCloseTo(actions.y + actions.height, 0);
+            expect(title.y).toBeCloseTo(tools.y, 0);
+            expect(tools.y + tools.height).toBeCloseTo(bottom.y, 0);
+            await page.locator(".panel-heading button").click();
+          } else {
+            expect(title.x).toBe(0);
+            expect(bottom.width).toBe(size.width);
+            expect(tools.y).toBeCloseTo(bottom.y + bottom.height, 0);
+          }
+        }
+      }
+    }
+  }
+});
+
+test("editable zoom confirms, cancels, validates and synchronizes with view controls", async ({ page }) => {
+  await page.goto("/");
+  const input = page.getByRole("textbox", { name: "Zoom (%)", exact: true });
+  await expect(input).toBeDisabled();
+  await expect(input).toHaveValue("—");
+  await openImage(page);
+  await expect(input).toHaveValue("100");
+  await input.focus();
+  expect(await input.evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual([0, 3]);
+  const sideAlpha = () => page.getByTestId("editor-canvas").evaluate(c => c.getContext("2d").getImageData(Math.floor(c.width / 2 + 120 * c.width / c.getBoundingClientRect().width), Math.floor(c.height / 2), 1, 1).data[3]);
+  await input.fill("200");
+  expect(await sideAlpha()).toBe(0);
+  await input.press("Enter");
+  await expect.poll(sideAlpha).toBe(255);
+  await input.fill("62,5");
+  await input.blur();
+  await expect(input).toHaveValue("62.5");
+  await input.fill("400");
+  await input.press("Escape");
+  await expect(input).toHaveValue("62.5");
+  for (const invalid of ["", "abc", "12foo", "Infinity"]) {
+    await input.fill(invalid);
+    await input.press("Enter");
+    await expect(input).toHaveValue("62.5");
+  }
+  for (const [entered, expected] of [["-10", "5"], ["0", "5"], ["900", "800"], ["33.333", "33.3"]]) {
+    await input.fill(entered);
+    await input.press("Enter");
+    await expect(input).toHaveValue(expected);
+  }
+  await input.fill("200");
+  await page.getByRole("button", { name: "Zoom in", exact: true }).click();
+  await expect(input).toHaveValue("240");
+  await input.fill("30");
+  await page.getByRole("button", { name: "Zoom out", exact: true }).click();
+  await expect(input).toHaveValue("25");
+  await input.fill("400");
+  await page.getByRole("button", { name: "Fit to view", exact: true }).click();
+  await expect(input).toHaveValue("100");
+  await input.fill("200");
+  await page.getByTestId("editor-canvas").hover();
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, -80);
+  await page.keyboard.up("Control");
+  await expect(input).toHaveValue("298.4");
+  await page.getByRole("button", { name: "Fit to view", exact: true }).click();
+  await draw(page);
+  await input.fill("100");
+  await input.press("r");
+  await input.press("Control+z");
+  await expect(page.locator(".region-row")).toHaveCount(1);
+  await input.press("Escape");
+});
+
+test("file and rectangle icons stay distinct and zoom labels stay accessible", async ({ page }) => {
+  await openImage(page);
+  await draw(page);
+  await expect(page.locator(".open-action svg.lucide-folder-open")).toBeVisible();
+  await expect(page.locator(".tool-rect svg.lucide-square")).toBeVisible();
+  await expect(page.locator(".region-icon svg.lucide-square")).toBeVisible();
+  await expect(page.locator(".document-bar > svg.lucide-image")).toHaveAttribute("width", "16");
+  for (const locale of ["EN", "ES"]) {
+    await page.getByRole("link", { name: locale, exact: true }).click();
+    const fit = page.getByRole("button", { name: locale === "EN" ? "Fit to view" : "Ajustar a la ventana", exact: true });
+    await expect(fit).toHaveText("");
+    await expect(fit).toHaveAttribute("title", locale === "EN" ? "Fit to view" : "Ajustar a la ventana");
+    await expect(fit.locator("svg.lucide-maximize")).toBeVisible();
+    await expect(page.locator(".zoom-actual")).toHaveCount(0);
+    await expect(page.locator(".canvas-bottom")).toHaveCSS("font-size", "11px");
+    await expect(page.locator(".zoom-input")).toHaveCSS("font-size", "11px");
+    await expect(page.locator(".site-footer")).toHaveCSS("font-size", "13px");
+  }
 });
