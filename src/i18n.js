@@ -1,5 +1,6 @@
 export const messages = {
   en: {
+    githubLink: "View source on GitHub",
     imageActions: "Image actions",
     closeImage: "Close image",
     collapseSettings: "Collapse settings and regions",
@@ -93,6 +94,7 @@ export const messages = {
     closeImageConfirm: "Discard your current edits and close the image?",
   },
   es: {
+    githubLink: "Ver código en GitHub",
     imageActions: "Acciones de imagen",
     closeImage: "Cerrar imagen",
     collapseSettings: "Plegar ajustes y regiones",

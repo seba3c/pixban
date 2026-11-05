@@ -249,10 +249,10 @@ test("header, attribution and previews remain available on mobile in both themes
       expect(Math.round(drawer.y + drawer.height)).toBe(Math.round((await page.locator(".site-footer").boundingBox()).y));
       await page.getByRole("button", { name: locale === "EN" ? "Close settings" : "Cerrar ajustes", exact: true }).click();
       await expect(page.locator(".site-footer")).toContainText("@pixban 2026 by Juana y Lola");
-      await expect(page.locator(".site-footer a")).toBeVisible();
+      await expect(page.locator(".copyright a")).toBeVisible();
       await expect(page.locator(".site-footer")).toHaveCSS("font-size", "13px");
       await expect(page.locator(".site-footer")).toHaveCSS("text-align", "center");
-      await expect(page.locator(".site-footer a")).toHaveAttribute("href", "https://juanaylola.com/");
+      await expect(page.locator(".copyright a")).toHaveAttribute("href", "https://juanaylola.com/");
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     }
   }
@@ -441,7 +441,7 @@ test("grayscale mosaic is stable and brush size remains available with every too
   await page.getByLabel("Toggle color theme").click();
   await page.getByRole("link", { name: "ES", exact: true }).click();
   expect(await pixels()).toEqual(original);
-  await expect(page.locator(".site-footer a")).toHaveCSS("text-decoration-line", "none");
+  await expect(page.locator(".copyright a")).toHaveCSS("text-decoration-line", "none");
 });
 
 test("block preview scales the same cells around a fixed center", async ({ page }) => {
@@ -485,7 +485,7 @@ test("desktop inspector starts below the logo and icon tools keep hints and shor
           const bottom = await page.locator(".canvas-bottom").boundingBox();
           const privacy = await page.locator(".site-footer .footer-privacy").boundingBox();
           const footer = await page.locator(".site-footer").boundingBox();
-          const copyright = await page.locator(".site-footer > span").boundingBox();
+          const copyright = await page.locator(".copyright").boundingBox();
           await expect(page.locator(".canvas-bottom .privacy-notice")).toHaveCount(0);
           await expect(page.locator(".footer-privacy p")).toBeVisible();
           expect(footer.x + footer.width - privacy.x - privacy.width).toBeCloseTo(16, 0);
@@ -816,7 +816,7 @@ test("mobile status bar, footer, tools and floating zoom fit both languages and 
         await expect(page.locator(".status-privacy p")).toBeHidden();
         await expect(page.locator(".zoom-input")).toHaveCount(0);
         const footer = await page.locator(".site-footer").boundingBox();
-        const copyright = await page.locator(".site-footer > span").boundingBox();
+        const copyright = await page.locator(".copyright").boundingBox();
         const privacy = await page.locator(".privacy-notice").boundingBox();
         const statusBar = await page.locator(".canvas-bottom").boundingBox();
         const dimensions = await page.locator(".image-dimensions").boundingBox();
@@ -825,7 +825,7 @@ test("mobile status bar, footer, tools and floating zoom fit both languages and 
         expect(privacy.y).toBeGreaterThanOrEqual(statusBar.y);
         expect(privacy.y + privacy.height).toBeLessThanOrEqual(statusBar.y + statusBar.height);
         await expect(page.locator(".site-footer .status-privacy")).toHaveCount(0);
-        await expect(page.locator(".site-footer")).toHaveText("@pixban 2026 by Juana y Lola");
+        await expect(page.locator(".copyright")).toHaveText("@pixban 2026 by Juana y Lola");
         expect(copyright.x + copyright.width / 2).toBeCloseTo(width / 2, 0);
         expect(copyright.y).toBeGreaterThanOrEqual(footer.y);
         expect(copyright.y + copyright.height).toBeLessThanOrEqual(footer.y + footer.height);

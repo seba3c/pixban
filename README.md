@@ -8,6 +8,17 @@ A browser-based image pixelation editor that processes images locally on your de
 
 React, JavaScript, CSS, Vite, Lucide icons, and Playwright.
 
+## App metadata
+
+`package.json` is the source of the app version and repository URL. Vite injects
+them as `APP_VERSION` and `REPOSITORY_URL`, exported by `src/app-info.js`.
+The footer displays this build's version and repository icon in the center on
+desktop, and beneath the copyright on mobile.
+
+`npm run build` also generates `dist/version.json` with `{ "version": "…" }`.
+The same `/version.json` route is available during development. After updating
+the package version, rebuild and deploy `dist` to publish the new version.
+
 ## Commands
 
 Requires Node.js 22.12+ and npm.

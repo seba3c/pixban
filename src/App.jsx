@@ -4,6 +4,7 @@ import {
   FolderOpen,
   ClipboardPaste,
   Copy,
+  Github,
   MousePointer2,
   Square,
   Paintbrush,
@@ -31,6 +32,7 @@ import {
   Upload,
 } from "lucide-react";
 import Editor from "./Editor.jsx";
+import { APP_VERSION, REPOSITORY_URL } from "./app-info.js";
 import sampleCar from "./assets/sample-car.webp";
 import { historyReducer, initialHistory, renderPixels } from "./engine.js";
 import { messages, preference, persist } from "./i18n.js";
@@ -856,12 +858,19 @@ export default function App() {
 
         </section>
         <footer className="site-footer" ref={footerRef}>
-          <span>
+          <span className="copyright">
             @pixban 2026 by {" "}
             <a href="https://juanaylola.com/" target="_blank" rel="noopener noreferrer">
               Juana y Lola
             </a>
           </span>
+          <div className="app-info">
+            <span className="app-version">v{APP_VERSION}</span>
+            <a className="repository-link" href={REPOSITORY_URL} target="_blank" rel="noopener noreferrer"
+              title={t.githubLink} aria-label={t.githubLink}>
+              <Github size={13} aria-hidden="true" />
+            </a>
+          </div>
           {!narrow && <div className="privacy-notice footer-privacy" title={t.privateLong}><ShieldCheck size={19} aria-hidden="true" /><div><strong>{t.private}</strong><p>{t.privateLong}</p></div></div>}
         </footer>
       </main>
