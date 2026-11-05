@@ -10,7 +10,7 @@ export const seo = {
     steps: [
       "Open or drop a PNG, JPEG or WebP image up to 32 megapixels.",
       "Draw a rectangle or paint with the brush over faces, license plates or other details. Adjust the block size, move regions, and undo changes as needed.",
-      "Download a flattened PNG or JPEG at the original resolution. Your original file stays untouched.",
+      "Use Export to download PNG, JPEG or WebP at the original resolution, with the original format selected by default. Use Copy to clipboard in the toolbar to copy the edited image directly as PNG. If your browser cannot export the selected file format, a PNG is downloaded instead. Your original file stays untouched.",
     ],
     privacy: "Images are processed on your device and never uploaded. No account is required. Images and edit history are not saved when you reload or close the page.",
     caution: "Pixelation visually obscures details; it does not guarantee irreversible anonymization.",
@@ -24,7 +24,7 @@ export const seo = {
     steps: [
       "Abre o arrastra una imagen PNG, JPEG o WebP de hasta 32 megapíxeles.",
       "Dibuja un rectángulo o pinta con el pincel sobre caras, matrículas u otros detalles. Ajusta el tamaño del bloque, mueve las regiones y deshaz cambios cuando lo necesites.",
-      "Descarga un PNG o JPEG con las regiones integradas y la resolución original. El archivo original se conserva intacto.",
+      "Usa Exportar para descargar PNG, JPEG o WebP con las regiones integradas y la resolución original, con el formato original preseleccionado. Usa Copiar al portapapeles en la barra para copiar directamente la imagen editada como PNG. Si tu navegador no admite el formato elegido, se descarga un PNG. El archivo original se conserva intacto.",
     ],
     privacy: "Las imágenes se procesan en tu dispositivo y nunca se suben a un servidor. No necesitas una cuenta. Las imágenes y el historial de edición se pierden al recargar o cerrar la página.",
     caution: "El pixelado oculta detalles visualmente; no garantiza una anonimización irreversible.",

@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { readFileSync } from "node:fs";
 import { PNG } from "pngjs";
 function fixture() {
   const png = new PNG({ width: 160, height: 100 });
@@ -52,7 +53,7 @@ async function imageAction(page, name) {
   await page.locator(close ? ".document-bar" : ".action-bar").getByRole("button", { name: close ? (name === "Close" ? "Close image" : "Cerrar imagen") : name, exact: true }).click();
 }
 async function download(page, format = "png") {
-  await imageAction(page, "Download");
+  await imageAction(page, "Export");
   await page.locator("#export-format").selectOption(format);
   const wait = page.waitForEvent("download");
   await page
@@ -167,7 +168,7 @@ test("reset cancels safely, clears history and restores defaults while preservin
   await page.locator("#block").blur();
   await page.getByRole("button", { name: "Brush", exact: true }).click();
   await page.locator("#diameter").fill("180");
-  await imageAction(page, "Download");
+  await imageAction(page, "Export");
   await page.locator("#export-format").selectOption("jpeg");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByLabel("Toggle color theme").click();
@@ -185,13 +186,13 @@ test("reset cancels safely, clears history and restores defaults while preservin
   await expect(page.getByRole("button", { name: "Rectángulo", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "Deshacer", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Rehacer", exact: true })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Descargar", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Exportar", exact: true })).toBeDisabled();
   await expect(page.locator("html")).toHaveAttribute("lang", "es");
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
   await page.getByRole("button", { name: "Pincel", exact: true }).click();
   await expect(page.locator("#diameter")).toHaveValue("45");
   await page.getByTestId("file-input").setInputFiles({ name: "test.png", mimeType: "image/png", buffer: fixture() });
-  await imageAction(page, "Descargar");
+  await imageAction(page, "Exportar");
   await expect(page.locator("#export-format")).toHaveValue("png");
   await page.getByRole("button", { name: "Cancelar", exact: true }).click();
   // An untouched image resets without a confirmation dialog.
@@ -243,7 +244,7 @@ test("header, attribution and previews remain available on mobile in both themes
       await page.getByRole("button", { name: locale === "EN" ? "Settings and regions" : "Ajustes y regiones", exact: true }).click();
       await expect(page.locator(".block-preview")).toBeVisible();
       await expect(page.locator(".brush-preview")).toBeVisible();
-      await expect(page.locator(".settings-dialog .footer-privacy")).toHaveCount(0);
+      await expect(page.locator(".settings-dialog .status-privacy")).toHaveCount(0);
       const drawer = await page.locator(".settings-dialog").boundingBox();
       expect(Math.round(drawer.y + drawer.height)).toBe(Math.round((await page.locator(".site-footer").boundingBox()).y));
       await page.getByRole("button", { name: locale === "EN" ? "Close settings" : "Cerrar ajustes", exact: true }).click();
@@ -305,6 +306,8 @@ test("visible actions support keyboard navigation and viewport layout", async ({
   await expect(page.locator(".paste-action")).toBeFocused();
   // Disabled history buttons are skipped in the native tab order.
   await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+  await expect(page.locator(".copy-action")).toBeFocused();
+  await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
   await expect(page.locator(".action-bar .primary")).toBeFocused();
   await expect(page.getByRole("menu")).toHaveCount(0);
   for (const size of [{ width: 1440, height: 900 }, { width: 320, height: 700 }, { width: 375, height: 812 }, { width: 812, height: 375 }]) {
@@ -333,13 +336,13 @@ test("pixban branding and localized route preserve the legacy theme preference",
   await expect(page.locator("html")).toHaveAttribute("lang", "es");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(page.locator(".toolbar h1")).toHaveCount(0);
-  await expect(page.locator(".footer-privacy")).toContainText("100 % local. Siempre privado.");
+  await expect(page.locator(".privacy-notice")).toContainText("100 % local. Siempre privado.");
   await page.getByTestId("file-input").setInputFiles({ name: "test.png", mimeType: "image/png", buffer: fixture() });
   await expect(page.getByTestId("editor-canvas")).toHaveAttribute("aria-label", "Editor de imagen");
 });
 
 
-test("light mode uses neutral fills and keeps footer privacy outside a long region list", async ({ page }) => {
+test("light mode uses neutral fills and keeps status privacy outside a long region list", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await openImage(page);
   await page.getByRole("button", { name: "Brush", exact: true }).click();
@@ -354,21 +357,21 @@ test("light mode uses neutral fills and keeps footer privacy outside a long regi
     await page.mouse.up();
   }
   await expect(page.locator(".region-row")).toHaveCount(12);
-  await page.locator(".footer-privacy").scrollIntoViewIfNeeded();
-  await expect(page.locator(".footer-privacy")).toBeVisible();
-  await expect(page.locator(".panel .footer-privacy")).toHaveCount(0);
+  await page.locator(".privacy-notice").scrollIntoViewIfNeeded();
+  await expect(page.locator(".privacy-notice")).toBeVisible();
+  await expect(page.locator(".panel .status-privacy")).toHaveCount(0);
   await page.setViewportSize({ width: 320, height: 700 });
   await page.getByRole("button", { name: "Settings and regions", exact: true }).click();
-  await expect(page.locator(".settings-dialog .footer-privacy")).toHaveCount(0);
+  await expect(page.locator(".settings-dialog .status-privacy")).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(page.locator(".site-footer")).toHaveCSS("text-align", "center");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await imageAction(page, "Download");
+  await imageAction(page, "Export");
   await expect(page.locator(".dialog-icon")).toHaveCSS("background-color", "rgb(229, 229, 229)");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   page.once("dialog", dialog => dialog.accept());
   await imageAction(page, "Close");
-  await expect(page.getByRole("button", { name: "Download", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Export", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Undo", exact: true })).toHaveCSS("color", "rgb(115, 115, 115)");
 });
 
@@ -480,6 +483,15 @@ test("desktop inspector starts below the logo and icon tools keep hints and shor
           expect(actions.x + actions.width).toBeCloseTo(panel.x, 0);
           expect(tools.width).toBe(52);
           const bottom = await page.locator(".canvas-bottom").boundingBox();
+          const privacy = await page.locator(".site-footer .footer-privacy").boundingBox();
+          const footer = await page.locator(".site-footer").boundingBox();
+          const copyright = await page.locator(".site-footer > span").boundingBox();
+          await expect(page.locator(".canvas-bottom .privacy-notice")).toHaveCount(0);
+          await expect(page.locator(".footer-privacy p")).toBeVisible();
+          expect(footer.x + footer.width - privacy.x - privacy.width).toBeCloseTo(16, 0);
+          expect(copyright.x - footer.x).toBeCloseTo(16, 0);
+          expect(privacy.x).toBeGreaterThanOrEqual(copyright.x + copyright.width);
+          expect(privacy.y + privacy.height).toBeLessThanOrEqual(footer.y + footer.height);
           expect(bottom.x).toBe(0);
           expect(bottom.x + bottom.width).toBeCloseTo(panel.x, 0);
           expect(tools.y).toBeCloseTo(actions.y + actions.height, 0);
@@ -527,7 +539,7 @@ test("tools start below actions beside the document title and file actions use a
       await page.setViewportSize(size);
       for (let appearance = 0; appearance < 2; appearance++) {
         await page.locator(".header-actions .icon-button").click();
-        for (const [selector, label] of [[".open-action", locale === "EN" ? "Open image" : "Abrir imagen"], [".paste-action", locale === "EN" ? "Paste image" : "Pegar imagen"], [".action-bar .primary", locale === "EN" ? "Download" : "Descargar"]]) {
+        for (const [selector, label] of [[".copy-action", locale === "EN" ? "Copy to clipboard" : "Copiar al portapapeles"], [".open-action", locale === "EN" ? "Open image" : "Abrir imagen"], [".paste-action", locale === "EN" ? "Paste image" : "Pegar imagen"], [".action-bar .primary", locale === "EN" ? "Export" : "Exportar"]]) {
           const action = page.locator(selector);
           await expect(action).toHaveText("");
           await expect(action).toHaveAttribute("aria-label", label);
@@ -767,7 +779,7 @@ test("paste respects editable fields and export and settings dialogs", async ({ 
     document.body.appendChild(editable);
   });
   expect(await pasteFixture(page, { target: "#paste-editable" })).toBe(false);
-  await imageAction(page, "Download");
+  await imageAction(page, "Export");
   expect(await pasteFixture(page)).toBe(false);
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.setViewportSize({ width: 375, height: 812 });
@@ -790,7 +802,7 @@ test("pending clipboard reads cannot overwrite a newer file or import a second p
 });
 
 
-test("mobile footer, tools and floating zoom fit both languages and themes", async ({ page }) => {
+test("mobile status bar, footer, tools and floating zoom fit both languages and themes", async ({ page }) => {
   await openImage(page);
   for (const locale of ["EN", "ES"]) {
     await page.getByRole("link", { name: locale, exact: true }).click();
@@ -798,17 +810,22 @@ test("mobile footer, tools and floating zoom fit both languages and themes", asy
       await page.setViewportSize({ width, height: 812 });
       for (let theme = 0; theme < 2; theme++) {
         await page.locator(".header-actions .icon-button").click();
-        await expect(page.locator(".footer-privacy")).toBeVisible();
-        await expect(page.locator(".footer-privacy svg")).toBeVisible();
-        await expect(page.locator(".footer-privacy strong")).toBeVisible();
-        await expect(page.locator(".footer-privacy p")).toBeHidden();
+        await expect(page.locator(".privacy-notice")).toBeVisible();
+        await expect(page.locator(".status-privacy svg")).toBeVisible();
+        await expect(page.locator(".status-privacy strong")).toBeVisible();
+        await expect(page.locator(".status-privacy p")).toBeHidden();
         await expect(page.locator(".zoom-input")).toHaveCount(0);
         const footer = await page.locator(".site-footer").boundingBox();
         const copyright = await page.locator(".site-footer > span").boundingBox();
-        const privacy = await page.locator(".footer-privacy").boundingBox();
-        expect(privacy.x + privacy.width / 2).toBeCloseTo(width / 2, 0);
-        expect(privacy.y).toBeGreaterThanOrEqual(footer.y);
-        expect(privacy.y + privacy.height).toBeLessThanOrEqual(copyright.y);
+        const privacy = await page.locator(".privacy-notice").boundingBox();
+        const statusBar = await page.locator(".canvas-bottom").boundingBox();
+        const dimensions = await page.locator(".image-dimensions").boundingBox();
+        expect(statusBar.x + statusBar.width - privacy.x - privacy.width).toBeCloseTo(8, 0);
+        expect(privacy.x).toBeGreaterThanOrEqual(dimensions.x + dimensions.width);
+        expect(privacy.y).toBeGreaterThanOrEqual(statusBar.y);
+        expect(privacy.y + privacy.height).toBeLessThanOrEqual(statusBar.y + statusBar.height);
+        await expect(page.locator(".site-footer .status-privacy")).toHaveCount(0);
+        await expect(page.locator(".site-footer")).toHaveText("@pixban 2026 by Juana y Lola");
         expect(copyright.x + copyright.width / 2).toBeCloseTo(width / 2, 0);
         expect(copyright.y).toBeGreaterThanOrEqual(footer.y);
         expect(copyright.y + copyright.height).toBeLessThanOrEqual(footer.y + footer.height);
@@ -861,7 +878,7 @@ test("mobile zoom changes scale without editing and survives viewport and settin
   await page.setViewportSize({ width: 681, height: 900 });
   await expect(page.locator(".mobile-zoom-controls")).toHaveCount(0);
   await expect(page.locator(".zoom-input")).toHaveValue("120");
-  await expect(page.locator(".footer-privacy")).toBeVisible();
+  await expect(page.locator(".privacy-notice")).toBeVisible();
   await page.setViewportSize({ width: 375, height: 812 });
   await zoom.getByRole("button", { name: "Fit to view", exact: true }).click();
   await expect.poll(outsideImageAlpha).toBe(0);
@@ -885,4 +902,218 @@ test("mobile empty state has no floating zoom and closing an image removes it", 
   await imageAction(page, "Close");
   await expect(page.locator(".mobile-zoom-controls, .zoom-input")).toHaveCount(0);
   await expect(page.locator(".empty-state")).toBeVisible();
+});
+
+async function mockClipboardWrite(page, mode = "success") {
+  await page.evaluate(mode => {
+    window.clipboardWrites = 0;
+    if (mode === "missing-item") {
+      Object.defineProperty(window, "ClipboardItem", { configurable: true, value: undefined });
+      return;
+    }
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: mode === "missing" ? undefined : {
+      write: async items => {
+        window.clipboardWrites++;
+        window.writeWasActivated = navigator.userActivation.isActive;
+        if (mode === "denied") throw new DOMException("Denied", "NotAllowedError");
+        const blob = await items[0].getType("image/png");
+        window.copiedImage = { type: blob.type, bytes: [...new Uint8Array(await blob.arrayBuffer())] };
+        if (mode === "pending") await new Promise(resolve => { window.finishClipboardWrite = resolve; });
+      },
+    } });
+  }, mode);
+}
+
+for (const format of ["png", "jpeg", "webp"]) {
+  test(`source ${format} preselects the file format and downloads correctly`, async ({ page }) => {
+    await openImage(page);
+    let buffer = fixture();
+    if (format === "webp") buffer = readFileSync(new URL("../../src/assets/sample-car.webp", import.meta.url));
+    if (format === "jpeg") buffer = Buffer.from(await page.evaluate(async () => {
+      const c = document.createElement("canvas"); c.width = 160; c.height = 100;
+      const blob = await new Promise(resolve => c.toBlob(resolve, "image/jpeg"));
+      return [...new Uint8Array(await blob.arrayBuffer())];
+    }));
+    await page.getByTestId("file-input").setInputFiles({ name: "source.wrong", mimeType: `image/${format}`, buffer });
+    await imageAction(page, "Export");
+    await expect(page.locator("#export-format")).toHaveValue(format);
+    await expect(page.locator("#export-destination")).toHaveCount(0);
+    const wait = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download image", exact: true }).click();
+    const result = await wait;
+    const chunks = []; for await (const chunk of await result.createReadStream()) chunks.push(chunk);
+    const bytes = Buffer.concat(chunks);
+    if (result.suggestedFilename().endsWith(".png")) {
+      const png = PNG.sync.read(bytes);
+      expect(png.width).toBeGreaterThan(0);
+      if (format !== "png") await expect(page.locator(".toast[role=status]")).toContainText("Downloaded as PNG");
+    } else if (format === "jpeg") {
+      expect(result.suggestedFilename()).toBe("source-pixelated.jpg");
+      expect([...bytes.subarray(0, 2)]).toEqual([255, 216]);
+    } else {
+      expect(result.suggestedFilename()).toBe("source-pixelated.webp");
+      expect(bytes.toString("ascii", 0, 4)).toBe("RIFF");
+      expect(bytes.toString("ascii", 8, 12)).toBe("WEBP");
+    }
+  });
+}
+
+test("PNG fallback uses the real extension and shows a notice", async ({ page }) => {
+  await openImage(page);
+  await page.evaluate(() => {
+    const native = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function(callback) { return native.call(this, callback, "image/png"); };
+  });
+  const result = await download(page, "webp");
+  expect(result.filename).toBe("test-pixelated.png");
+  expect(PNG.sync.read(result.bytes).width).toBe(160);
+  await expect(page.locator(".toast[role=status]")).toContainText("Downloaded as PNG");
+});
+
+test("clipboard copies edited PNG pixels and marks only successful copies as exported", async ({ page }) => {
+  await openImage(page);
+  await draw(page);
+  const expected = PNG.sync.read((await download(page)).bytes);
+  await mockClipboardWrite(page);
+  let downloads = 0; page.on("download", () => downloads++);
+  await page.evaluate(() => {
+    window.openedDialogs = 0;
+    const native = HTMLDialogElement.prototype.showModal;
+    HTMLDialogElement.prototype.showModal = function() { window.openedDialogs++; return native.call(this); };
+  });
+  await imageAction(page, "Copy to clipboard");
+  await expect(page.locator(".toast[role=status]")).toHaveText(/Image copied to clipboard/);
+  const copied = await page.evaluate(() => window.copiedImage);
+  expect(copied.type).toBe("image/png");
+  expect(PNG.sync.read(Buffer.from(copied.bytes)).data).toEqual(expected.data);
+  expect(downloads).toBe(0);
+  expect(await page.evaluate(() => window.openedDialogs)).toBe(0);
+  expect(await page.evaluate(() => window.writeWasActivated)).toBe(true);
+  let confirmations = 0;
+  page.on("dialog", async d => { confirmations++; await d.dismiss(); });
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await imageAction(page, "Copy to clipboard");
+  await expect(page.locator(".toast[role=status]")).toHaveText(/Image copied/);
+  await imageAction(page, "Close");
+  await expect(page.getByTestId("editor-canvas")).toHaveCount(0);
+  expect(confirmations).toBe(0);
+  await openImage(page); await draw(page);
+  await imageAction(page, "Close");
+  expect(confirmations).toBe(1);
+});
+
+for (const mode of ["denied", "missing", "missing-item", "encode-error"]) {
+  test(`clipboard ${mode} preserves edits and allows file download`, async ({ page }) => {
+    await openImage(page); await draw(page);
+    await mockClipboardWrite(page, mode);
+    if (mode === "encode-error") await page.evaluate(() => {
+      window.nativeToBlob = HTMLCanvasElement.prototype.toBlob;
+      HTMLCanvasElement.prototype.toBlob = callback => callback(null);
+    });
+    await imageAction(page, "Copy to clipboard");
+    await expect(page.getByRole("alert")).toContainText(mode.startsWith("missing") ? "unavailable" : "Could not copy");
+    await expect(page.getByRole("button", { name: "Copy to clipboard", exact: true })).toBeEnabled();
+    await expect(page.locator(".region-row")).toHaveCount(1);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    let confirmation = false;
+    page.once("dialog", async d => { confirmation = true; await d.dismiss(); });
+    await imageAction(page, "Close");
+    expect(confirmation).toBe(true);
+    await imageAction(page, "Export");
+    if (mode === "encode-error") await page.evaluate(() => { HTMLCanvasElement.prototype.toBlob = window.nativeToBlob; });
+    const wait = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download image", exact: true }).click();
+    expect((await wait).suggestedFilename()).toBe("test-pixelated.png");
+  });
+}
+
+test("pending direct copy blocks duplicate copies and file export without opening a dialog", async ({ page }) => {
+  await openImage(page); await mockClipboardWrite(page, "pending");
+  await imageAction(page, "Copy to clipboard");
+  await expect.poll(() => page.evaluate(() => typeof window.finishClipboardWrite)).toBe("function");
+  await expect(page.locator(".copy-action")).toBeDisabled();
+  await expect(page.locator(".action-bar .primary")).toBeDisabled();
+  await expect(page.locator(".busy-overlay")).toHaveText(/Copying image/);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.locator(".copy-action").dispatchEvent("click");
+  await page.evaluate(() => window.finishClipboardWrite());
+  await expect(page.locator(".toast[role=status]")).toHaveText(/Image copied/);
+  expect(await page.evaluate(() => window.clipboardWrites)).toBe(1);
+});
+
+for (const lang of ["en", "es"]) {
+  test(`direct copy fits mobile and preserves file format in ${lang}`, async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 740 });
+    await page.goto("/");
+    await expect(page.locator(".copy-action")).toBeDisabled();
+    await openImage(page);
+    if (lang === "es") await page.getByRole("link", { name: "ES", exact: true }).click();
+    const exportLabel = lang === "es" ? "Exportar" : "Export";
+    const copyLabel = lang === "es" ? "Copiar al portapapeles" : "Copy to clipboard";
+    const cancel = lang === "es" ? "Cancelar" : "Cancel";
+    await expect(page.locator(".copy-action")).toHaveAttribute("title", copyLabel);
+    for (const button of await page.locator(".action-bar > button").all()) {
+      const box = await button.boundingBox();
+      expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(320);
+    }
+    await imageAction(page, exportLabel);
+    await expect(page.locator("#export-destination")).toHaveCount(0);
+    await expect(page.getByRole("dialog").getByRole("button", { name: copyLabel, exact: true })).toHaveCount(0);
+    await page.locator("#export-format").selectOption("webp");
+    const box = await page.getByRole("dialog").boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(320);
+    await page.getByRole("button", { name: cancel, exact: true }).click();
+    for (const mode of ["success", "denied"]) {
+      await mockClipboardWrite(page, mode);
+      await imageAction(page, copyLabel);
+      await expect(page.locator(".toast")).toContainText(mode === "success" ? (lang === "es" ? "Imagen copiada" : "Image copied") : (lang === "es" ? "No se pudo copiar" : "Could not copy"));
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      await imageAction(page, exportLabel);
+      await expect(page.locator("#export-format")).toHaveValue("webp");
+      await page.getByRole("button", { name: cancel, exact: true }).click();
+    }
+    await page.getByTestId("file-input").setInputFiles({ name: "new.png", mimeType: "image/png", buffer: fixture() });
+    await imageAction(page, exportLabel);
+    await expect(page.locator("#export-format")).toHaveValue("png");
+  });
+}
+
+test("transparent exports preserve alpha in PNG and clipboard, and JPEG uses white", async ({ page }) => {
+  await openImage(page);
+  const transparent = new PNG({ width: 160, height: 100 });
+  transparent.data.fill(0);
+  await page.getByTestId("file-input").setInputFiles({ name: "alpha.png", mimeType: "image/png", buffer: PNG.sync.write(transparent) });
+  const png = await download(page);
+  expect(PNG.sync.read(png.bytes).data[3]).toBe(0);
+  await mockClipboardWrite(page);
+  await imageAction(page, "Copy to clipboard");
+  await expect(page.locator(".toast")).toContainText("Image copied");
+  const copied = await page.evaluate(() => window.copiedImage.bytes);
+  expect(PNG.sync.read(Buffer.from(copied)).data[3]).toBe(0);
+  await imageAction(page, "Export");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  const jpeg = await download(page, "jpeg");
+  const pixel = await page.evaluate(async bytes => {
+    const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: "image/jpeg" }));
+    const c = document.createElement("canvas"); c.width = bitmap.width; c.height = bitmap.height;
+    c.getContext("2d").drawImage(bitmap, 0, 0); bitmap.close();
+    return [...c.getContext("2d").getImageData(0, 0, 1, 1).data];
+  }, [...jpeg.bytes]);
+  expect(pixel).toEqual([255, 255, 255, 255]);
+});
+
+test("failed and cancelled imports preserve export choices", async ({ page }) => {
+  await openImage(page); await draw(page);
+  await imageAction(page, "Export");
+  await page.locator("#export-format").selectOption("webp");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  page.once("dialog", d => d.dismiss());
+  await page.getByTestId("file-input").setInputFiles({ name: "cancelled.png", mimeType: "image/png", buffer: fixture() });
+  page.once("dialog", d => d.accept());
+  await page.getByTestId("file-input").setInputFiles({ name: "invalid.png", mimeType: "image/png", buffer: Buffer.from("invalid") });
+  await expect(page.getByRole("alert")).toContainText("could not be opened");
+  await expect(page.locator(".image-name")).toHaveText("test.png");
+  await expect(page.locator(".region-row")).toHaveCount(1);
+  await imageAction(page, "Export");
+  await expect(page.locator("#export-format")).toHaveValue("webp");
 });

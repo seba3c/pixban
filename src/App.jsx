@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   FolderOpen,
   ClipboardPaste,
+  Copy,
   MousePointer2,
   Square,
   Paintbrush,
@@ -37,6 +38,29 @@ import { localePath, pathLocale, renderGuide, seo, updatePageMetadata } from "./
 const DEFAULT_BLOCK = 35;
 const DEFAULT_DIAMETER = 45;
 const IMAGE_EXTENSIONS = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
+
+// Render only image pixels; editor overlays never enter either export destination.
+async function encodeImage(image, ops, format) {
+  const canvas = document.createElement("canvas");
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const pixels = document.createElement("canvas");
+  pixels.width = canvas.width;
+  pixels.height = canvas.height;
+  pixels.getContext("2d").putImageData(new ImageData(
+    renderPixels(image.data, image.width, image.height, ops), image.width, image.height,
+  ), 0, 0);
+  const ctx = canvas.getContext("2d");
+  if (format === "jpeg") {
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  ctx.drawImage(pixels, 0, 0);
+  return new Promise((resolve, reject) => canvas.toBlob(blob => {
+    if (blob) resolve(blob);
+    else reject(new Error("encode"));
+  }, `image/${format}`, 0.92));
+}
 
 function IconButton({ label, children, className = "", ...props }) {
   return (
@@ -159,6 +183,8 @@ export default function App() {
     [zoom, setZoom] = useState(1),
     [viewRequest, setViewRequest] = useState({ mode: "fit", token: 0 }),
     [format, setFormat] = useState("png"),
+    [copying, setCopying] = useState(false),
+    [exportFailure, setExportFailure] = useState(null),
     [exportOpen, setExportOpen] = useState(false),
     [busy, setBusy] = useState(false),
     [toast, setToast] = useState(null),
@@ -169,6 +195,7 @@ export default function App() {
     loadId = useRef(0),
     dialog = useRef(),
     downloadUrl = useRef(),
+    exportInFlight = useRef(false),
     dragCounter = useRef(0);
   const dirty = JSON.stringify(ops) !== exported;
   const active = ops.find((o) => o.id === selected);
@@ -284,6 +311,7 @@ export default function App() {
     return () => window.removeEventListener("paste", handler);
   }, [busy, exportOpen, settingsOpen, dirty, lang]);
   function closeImage() {
+    if (busy) return;
     if (dirty && !window.confirm(t.closeImageConfirm)) return;
     loadId.current++;
     if (downloadUrl.current) {
@@ -302,6 +330,7 @@ export default function App() {
     setZoom(1);
     setViewRequest({ mode: "fit", token: 0 });
     setFormat("png");
+    setExportFailure(null);
     setSlider(null);
     setExportOpen(false);
     setToast(null);
@@ -333,7 +362,9 @@ export default function App() {
       ctx.drawImage(bitmap, 0, 0);
       const data = ctx.getImageData(0, 0, c.width, c.height).data;
       if (id !== loadId.current) return;
-      setImage({ name: file.name || `clipboard.${IMAGE_EXTENSIONS[file.type]}`, width: c.width, height: c.height, data, isSample });
+      setImage({ name: file.name || `clipboard.${IMAGE_EXTENSIONS[file.type]}`, width: c.width, height: c.height, data, isSample, mimeType: file.type });
+      setFormat(file.type.slice("image/".length));
+      setExportFailure(null);
       dispatch({ type: "reset" });
       setSelected(null);
       setExported("[]");
@@ -392,55 +423,60 @@ export default function App() {
       }
     }
   }
-  async function download() {
-    if (!image || busy) return;
+  async function copyImage() {
+    if (!image || busy || exportInFlight.current || exportOpen || settingsOpen) return;
+    if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+      setToast({ error: true, key: "clipboardCopyUnavailable" });
+      return;
+    }
+    exportInFlight.current = true;
     setBusy(true);
+    setCopying(true);
+    setToast(null);
     const snapshot = JSON.stringify(ops);
     try {
-      const c = document.createElement("canvas");
-      c.width = image.width;
-      c.height = image.height;
-      const ctx = c.getContext("2d");
-      const pixels = document.createElement("canvas");
-      pixels.width = c.width;
-      pixels.height = c.height;
-      pixels
-        .getContext("2d")
-        .putImageData(
-          new ImageData(
-            renderPixels(image.data, image.width, image.height, ops),
-            image.width,
-            image.height,
-          ),
-          0,
-          0,
-        );
-      if (format === "jpeg") {
-        ctx.fillStyle = "white";
-        ctx.fillRect(0, 0, c.width, c.height);
-      }
-      ctx.drawImage(pixels, 0, 0);
-      const blob = await new Promise((resolve) =>
-        c.toBlob(resolve, `image/${format}`, 0.92),
-      );
-      if (!blob) throw new Error("encode");
+      // Call write during the click; defer encoding without losing user activation.
+      const png = Promise.resolve().then(() => encodeImage(image, ops, "png"));
+      // A constructor/write rejection can happen before the browser consumes png.
+      png.catch(() => {});
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+      setExported(snapshot);
+      setToast({ key: "clipboardCopied" });
+    } catch {
+      setToast({ error: true, key: "clipboardCopyError" });
+    } finally {
+      exportInFlight.current = false;
+      setCopying(false);
+      setBusy(false);
+    }
+  }
+  async function exportImage() {
+    if (!image || busy || exportInFlight.current) return;
+    exportInFlight.current = true;
+    setBusy(true);
+    setExportFailure(null);
+    const snapshot = JSON.stringify(ops);
+    try {
+      const blob = await encodeImage(image, ops, format);
+      const extension = IMAGE_EXTENSIONS[blob.type];
+      if (!extension || (blob.type !== `image/${format}` && blob.type !== "image/png"))
+        throw new Error("encode");
       if (downloadUrl.current) URL.revokeObjectURL(downloadUrl.current);
       downloadUrl.current = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = downloadUrl.current;
-      a.download =
-        image.name.replace(/\.[^.]+$/, "") +
-        (lang === "es" ? "-pixelada" : "-pixelated") +
-        (format === "jpeg" ? ".jpg" : ".png");
+      a.download = image.name.replace(/\.[^.]+$/, "") +
+        (lang === "es" ? "-pixelada" : "-pixelated") + `.${extension}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       setExported(snapshot);
       setExportOpen(false);
-      setToast({ key: "notice" });
+      setToast({ key: blob.type === `image/${format}` ? "notice" : "exportPngFallback" });
     } catch {
-      setToast({ error: true, key: "exportError" });
+      setExportFailure("exportError");
     } finally {
+      exportInFlight.current = false;
       setBusy(false);
     }
   }
@@ -686,7 +722,8 @@ export default function App() {
               <Redo2 size={18} />
             </IconButton>
             <span className="toolbar-spacer" />
-            <IconButton className="primary" label={t.download} disabled={!image || busy} onClick={() => setExportOpen(true)}><Download size={18} /></IconButton>
+            <IconButton className="secondary copy-action" label={t.copyImage} disabled={!image || busy} onClick={copyImage}><Copy size={18} /></IconButton>
+            <IconButton className="primary" label={t.exportAction} disabled={!image || busy} onClick={() => { setExportFailure(null); setExportOpen(true); }}><Download size={18} /></IconButton>
           </nav>
           <nav className="toolbar" aria-label={t.tools}>
             {tools.map(([id, Icon, label, key]) => (
@@ -774,7 +811,7 @@ export default function App() {
             </nav>}
           </div>
           <div className="canvas-bottom">
-            <span>
+            <span className="image-status">
               <span className={`status-dot ${image ? "loaded" : ""}`} />
               {image ? <>
                 <span className="image-dimensions">{image.width.toLocaleString(lang)} × {image.height.toLocaleString(lang)} px</span>
@@ -805,6 +842,7 @@ export default function App() {
                 <Maximize size={15} />
               </IconButton>
             </div>}
+            {narrow && <div className="privacy-notice status-privacy" title={t.privateLong}><ShieldCheck size={19} aria-hidden="true" /><div><strong>{t.private}</strong><p>{t.privateLong}</p></div></div>}
           </div>
           {!narrow && <aside className="panel">
             <div className="panel-heading">
@@ -824,7 +862,7 @@ export default function App() {
               Juana y Lola
             </a>
           </span>
-          <div className="footer-privacy"><ShieldCheck size={19} aria-hidden="true" /><div><strong>{t.private}</strong><p>{t.privateLong}</p></div></div>
+          {!narrow && <div className="privacy-notice footer-privacy" title={t.privateLong}><ShieldCheck size={19} aria-hidden="true" /><div><strong>{t.private}</strong><p>{t.privateLong}</p></div></div>}
         </footer>
       </main>
       {narrow && <dialog className="settings-dialog" ref={settingsDialog}
@@ -845,7 +883,7 @@ export default function App() {
       {busy && (
         <div className="busy-overlay" role="status">
           <span className="spinner" />
-          {exportOpen ? t.exporting : t.loading}
+          {copying ? t.copying : exportOpen ? t.exporting : t.loading}
         </div>
       )}
       {toast && (
@@ -862,9 +900,9 @@ export default function App() {
       )}
       <dialog
         ref={dialog}
-        onCancel={() => setExportOpen(false)}
+        onCancel={e => { e.preventDefault(); if (!busy) setExportOpen(false); }}
         onClick={(e) => {
-          if (e.target === dialog.current) setExportOpen(false);
+          if (!busy && e.target === dialog.current) setExportOpen(false);
         }}
         aria-labelledby="export-title"
       >
@@ -872,22 +910,18 @@ export default function App() {
           <span className="dialog-icon">
             <Download size={22} />
           </span>
-          <IconButton label={t.close} onClick={() => setExportOpen(false)}>
+          <IconButton label={t.close} disabled={busy} onClick={() => setExportOpen(false)}>
             <X size={18} />
           </IconButton>
         </div>
         <h2 id="export-title">{t.exportTitle}</h2>
         <p>{t.exportDesc}</p>
-        <label className="export-label" htmlFor="export-format">
-          {t.format}
-        </label>
-        <select
-          id="export-format"
-          value={format}
-          onChange={(e) => setFormat(e.target.value)}
-        >
+        <label className="export-label" htmlFor="export-format">{t.format}</label>
+        <select id="export-format" value={format} disabled={busy}
+          onChange={e => { setFormat(e.target.value); setExportFailure(null); }}>
           <option value="png">{t.png}</option>
           <option value="jpeg">{t.jpeg}</option>
+          <option value="webp">{t.webp}</option>
         </select>
         <div className="export-meta">
           <ImageIcon size={15} />
@@ -897,11 +931,12 @@ export default function App() {
           </span>
         </div>
         <p className="export-note">{t.exportNote}</p>
+        {exportFailure && <p className="export-error" role="alert">{t[exportFailure]}</p>}
         <div className="dialog-buttons">
-          <button className="secondary" onClick={() => setExportOpen(false)}>
+          <button className="secondary" disabled={busy} onClick={() => setExportOpen(false)}>
             {t.cancel}
           </button>
-          <button className="primary" disabled={busy} onClick={download}>
+          <button className="primary" disabled={busy} onClick={exportImage}>
             <Download size={15} />
             {t.export}
           </button>
