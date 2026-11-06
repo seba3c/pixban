@@ -133,7 +133,9 @@ export default function Editor({
             Math.min(tile, image.height - y * tile),
           );
     if (offscreen.current) ctx.drawImage(offscreen.current, 0, 0);
-    const op = shown.find((o) => o.id === selected) || draft?.op;
+    const op = draft?.op.kind === "brush"
+      ? null
+      : shown.find((o) => o.id === selected) || draft?.op;
     if (op) {
       const b = bounds(op);
       ctx.strokeStyle = theme === "dark" ? "#f87171" : "#2563eb";

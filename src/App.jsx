@@ -7,6 +7,7 @@ import {
   Github,
   MousePointer2,
   Square,
+  SquareDashed,
   Paintbrush,
   Hand,
   Undo2,
@@ -37,7 +38,7 @@ import sampleCar from "./assets/sample-car.webp";
 import { historyReducer, initialHistory, renderPixels } from "./engine.js";
 import { messages, preference, persist } from "./i18n.js";
 import { localePath, pathLocale, renderGuide, seo, updatePageMetadata } from "./seo.js";
-const DEFAULT_BLOCK = 35;
+const DEFAULT_BLOCK = 25;
 const DEFAULT_DIAMETER = 45;
 const IMAGE_EXTENSIONS = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
 
@@ -113,11 +114,11 @@ function BlockPreview({ block, label }) {
   useEffect(() => {
     const canvas = ref.current;
     const ctx = canvas.getContext("2d");
-    // Two backing pixels per CSS pixel keep half-pixel cells sharp and opaque.
+    // Two backing pixels per CSS pixel keep the full-size preview sharp.
     ctx.setTransform(2, 0, 0, 2, 0, 0);
-    const cell = block / 2;
+    const cell = block;
     // Keep the central grid intersection fixed as cells grow in every direction.
-    const center = 60;
+    const center = 30;
     const first = Math.floor(-center / cell);
     const last = Math.ceil(center / cell);
     for (let row = first; row < last; row++) {
@@ -130,7 +131,7 @@ function BlockPreview({ block, label }) {
       }
     }
   }, [block]);
-  return <canvas ref={ref} className="block-preview" width="240" height="240" role="img" aria-label={label} data-cell-size={block / 2} />;
+  return <canvas ref={ref} className="block-preview" width="120" height="120" role="img" aria-label={label} data-cell-size={block} />;
 }
 function PixelLogo() {
   return (
@@ -194,6 +195,7 @@ export default function App() {
     [exported, setExported] = useState("[]"),
     [slider, setSlider] = useState(null);
   const fileInput = useRef(),
+    toolButtons = useRef({}),
     loadId = useRef(0),
     dialog = useRef(),
     downloadUrl = useRef(),
@@ -270,7 +272,7 @@ export default function App() {
         ["INPUT", "SELECT", "TEXTAREA"].includes(
           document.activeElement.tagName,
         ) ||
-        exportOpen || settingsOpen || busy
+        !image || exportOpen || settingsOpen || busy
       )
         return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
@@ -287,12 +289,17 @@ export default function App() {
       }
       if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         const tools = { v: "select", r: "rect", b: "brush", h: "pan" };
-        if (tools[e.key.toLowerCase()]) setTool(tools[e.key.toLowerCase()]);
+        const nextTool = tools[e.key.toLowerCase()];
+        if (nextTool) {
+          e.preventDefault();
+          setTool(nextTool);
+          toolButtons.current[nextTool]?.focus({ preventScroll: true });
+        }
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [ops, selected, exportOpen, settingsOpen, busy]);
+  }, [image, ops, selected, exportOpen, settingsOpen, busy]);
   useEffect(() => {
     const handler = (event) => {
       if (event.defaultPrevented || busy || exportOpen || settingsOpen ||
@@ -484,7 +491,7 @@ export default function App() {
   }
   const tools = [
     ["select", MousePointer2, t.select, "V"],
-    ["rect", Square, t.rect, "R"],
+    ["rect", SquareDashed, t.rect, "R"],
     ["brush", Paintbrush, t.brush, "B"],
     ["pan", Hand, t.pan, "H"],
   ];
@@ -510,9 +517,10 @@ export default function App() {
           id="block"
           type="range"
           min="4"
-          max="96"
+          max="25"
           step="1"
           value={effectiveBlock}
+          disabled={!image}
           onChange={(e) => {
             const n = Number(e.target.value);
             setBlock(n);
@@ -524,7 +532,7 @@ export default function App() {
         />
         <div className="range-ends">
           <span>4 px</span>
-          <span>96 px</span>
+          <span>25 px</span>
         </div>
         <div className="size-preview">
           <BlockPreview block={effectiveBlock} label={`${t.block}: ${effectiveBlock} px`} />
@@ -541,8 +549,9 @@ export default function App() {
               id="diameter"
               type="range"
               min="8"
-              max="240"
+              max="50"
               value={diameter}
+              disabled={!image || tool !== "brush"}
               onChange={(e) => setDiameter(Number(e.target.value))}
             />
             <div className="size-preview">
@@ -551,7 +560,7 @@ export default function App() {
                 role="img"
                 aria-label={`${t.diameter}: ${diameter} px`}
               >
-                <span style={{ width: diameter / 2, height: diameter / 2 }} />
+                <span style={{ width: diameter, height: diameter }} />
               </div>
             </div>
           </div>
@@ -727,14 +736,16 @@ export default function App() {
             <IconButton className="secondary copy-action" label={t.copyImage} disabled={!image || busy} onClick={copyImage}><Copy size={18} /></IconButton>
             <IconButton className="primary" label={t.exportAction} disabled={!image || busy} onClick={() => { setExportFailure(null); setExportOpen(true); }}><Download size={18} /></IconButton>
           </nav>
-          <nav className="toolbar" aria-label={t.tools}>
+          <nav className="toolbar" aria-label={t.tools} aria-disabled={!image}>
             {tools.map(([id, Icon, label, key]) => (
               <button
                 key={id}
+                ref={button => { toolButtons.current[id] = button; }}
                 className={`tool tool-${id} ${tool === id ? "active" : ""}`}
                 aria-label={label}
                 aria-pressed={tool === id}
                 title={`${label} (${key})`}
+                disabled={!image}
                 onClick={() => {
                   setTool(id);
                   if (id !== "select") setSelected(null);
@@ -744,7 +755,7 @@ export default function App() {
                 <Icon size={20} />
               </button>
             ))}
-            {narrow && <IconButton className="settings-action" ref={settingsButton} label={t.settings} onClick={() => setSettingsOpen(true)}>
+            {narrow && <IconButton className="settings-action" ref={settingsButton} label={t.settings} disabled={!image} onClick={() => setSettingsOpen(true)}>
               <SlidersHorizontal size={18} />
             </IconButton>}
           </nav>
@@ -853,7 +864,7 @@ export default function App() {
                 {panelCollapsed ? <PanelRightOpen size={18} /> : <PanelRightClose size={18} />}
               </IconButton>
             </div>
-            <div id="settings-content" hidden={panelCollapsed}>{settingsPanel}</div>
+            <div id="settings-content" aria-disabled={!image} hidden={panelCollapsed}>{settingsPanel}</div>
           </aside>}
 
         </section>
