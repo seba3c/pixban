@@ -36,7 +36,7 @@ async function draw(page) {
   await page.mouse.up();
   await expect(page.locator(".region-row")).toHaveCount(1);
 }
-async function expectSelectionColor(page, theme) {
+async function expectSelectionColor(page, theme, visible = true) {
   // Fixture pixels have no red above 159 and no bright blue-dominant pixels.
   // This checks the visible outline, including antialiased strokes, after redraw.
   await expect.poll(() => page.getByTestId("editor-canvas").evaluate((canvas, mode) => {
@@ -46,7 +46,26 @@ async function expectSelectionColor(page, theme) {
       if (mode === "light" ? b > 160 && b > r * 1.7 && b > g * 1.3 : r > 180 && r > g * 1.5 && r > b * 1.5) return true;
     }
     return false;
-  }, theme)).toBe(true);
+  }, theme)).toBe(visible);
+}
+async function expectCompactPreviews(page) {
+  const block = page.locator(".block-preview");
+  const brush = page.locator(".brush-preview");
+  await expect(block).toHaveCSS("width", "60px");
+  await expect(block).toHaveCSS("height", "60px");
+  await expect(block).toHaveAttribute("width", "120");
+  await expect(block).toHaveAttribute("height", "120");
+  await expect(block.locator("..")).toHaveCSS("height", "78px");
+  await expect(brush).toHaveCSS("height", "60px");
+  await expect(brush.locator("..")).toHaveCSS("height", "78px");
+  await expect(brush.locator("span")).toHaveCSS("width", "50px");
+  await expect(brush.locator("span")).toHaveCSS("height", "50px");
+  expect(await brush.evaluate(element => {
+    const preview = element.getBoundingClientRect();
+    const circle = element.firstElementChild.getBoundingClientRect();
+    return circle.left >= preview.left && circle.right <= preview.right &&
+      circle.top >= preview.top && circle.bottom <= preview.bottom;
+  })).toBe(true);
 }
 async function imageAction(page, name) {
   const close = ["Close", "Cerrar"].includes(name);
@@ -86,7 +105,7 @@ test("rectangle, independent intensity, history, exports and preference changes"
   await draw(page);
   await expect(page.locator(".tool.active")).toHaveCSS("color", "rgb(37, 99, 235)");
   await expectSelectionColor(page, "light");
-  await page.locator("#block").fill("32");
+  await page.locator("#block").fill("20");
   await page.locator("#block").press("ArrowRight");
   await page.locator("#block").blur();
   await page.getByRole("button", { name: "Undo", exact: true }).click();
@@ -133,6 +152,29 @@ test("brush, selection deletion and unsupported file preserve current image", as
   await expect(page.locator(".region-row")).toHaveCount(0);
 });
 
+for (const theme of ["light", "dark"]) {
+  test(`brush shows its region outline only after release in ${theme} mode`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await openImage(page);
+    await draw(page);
+    await expectSelectionColor(page, theme);
+    await page.getByRole("button", { name: "Brush", exact: true }).click();
+    const box = await page.getByTestId("editor-canvas").boundingBox();
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await page.mouse.move(x - 60, y + 10);
+    await page.mouse.down();
+    await expectSelectionColor(page, theme, false);
+    await page.mouse.move(x - 50, y + 20, { steps: 4 });
+    await expectSelectionColor(page, theme, false);
+    await expect(page.locator(".region-row")).toHaveCount(1);
+    await page.mouse.up();
+    await expect(page.locator(".region-row")).toHaveCount(2);
+    await expect(page.locator(".region-row").last()).toContainText("Brush stroke");
+    await expectSelectionColor(page, theme);
+  });
+}
+
 test("initial canvas render is centered before user interaction", async ({
   page,
 }) => {
@@ -159,15 +201,15 @@ test("initial canvas render is centered before user interaction", async ({
 test("reset cancels safely, clears history and restores defaults while preserving preferences", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".document-bar")).toHaveCount(0);
-  await expect(page.locator("#block")).toHaveValue("35");
-  await page.getByRole("button", { name: "Brush", exact: true }).click();
+  await expect(page.locator("#block")).toHaveValue("25");
+  await expect(page.getByRole("button", { name: "Brush", exact: true })).toBeDisabled();
   await expect(page.locator("#diameter")).toHaveValue("45");
   await openImage(page);
   await draw(page);
-  await page.locator("#block").fill("80");
+  await page.locator("#block").fill("20");
   await page.locator("#block").blur();
   await page.getByRole("button", { name: "Brush", exact: true }).click();
-  await page.locator("#diameter").fill("180");
+  await page.locator("#diameter").fill("50");
   await imageAction(page, "Export");
   await page.locator("#export-format").selectOption("jpeg");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -177,19 +219,19 @@ test("reset cancels safely, clears history and restores defaults while preservin
   page.once("dialog", (dialog) => dialog.dismiss());
   await imageAction(page, "Cerrar");
   await expect(page.locator(".region-row")).toHaveCount(1);
-  await expect(page.locator("#diameter")).toHaveValue("180");
+  await expect(page.locator("#diameter")).toHaveValue("50");
   page.once("dialog", (dialog) => dialog.accept());
   await imageAction(page, "Cerrar");
   await expect(page.getByTestId("editor-canvas")).toHaveCount(0);
   await expect(page.locator(".region-row")).toHaveCount(0);
-  await expect(page.locator("#block")).toHaveValue("35");
+  await expect(page.locator("#block")).toHaveValue("25");
   await expect(page.getByRole("button", { name: "Rectángulo", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "Deshacer", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Rehacer", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Exportar", exact: true })).toBeDisabled();
   await expect(page.locator("html")).toHaveAttribute("lang", "es");
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
-  await page.getByRole("button", { name: "Pincel", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Pincel", exact: true })).toBeDisabled();
   await expect(page.locator("#diameter")).toHaveValue("45");
   await page.getByTestId("file-input").setInputFiles({ name: "test.png", mimeType: "image/png", buffer: fixture() });
   await imageAction(page, "Exportar");
@@ -203,35 +245,76 @@ test("reset cancels safely, clears history and restores defaults while preservin
   expect(confirmed).toBe(false);
 });
 
-test("size previews follow sliders and selected regions at a fixed half scale", async ({ page }) => {
+test("block size stops at 25 px, brush at 50 px and previews match their pixel sizes", async ({ page }) => {
   await openImage(page);
   const preview = page.locator(".block-preview");
+  const block = page.locator("#block");
+  const brush = page.locator("#diameter");
   const zoom = await page.locator(".zoom-input").inputValue();
-  for (const value of [4, 35, 96]) {
-    await page.locator("#block").fill(String(value));
-    await expect(preview).toHaveAttribute("data-cell-size", String(value / 2));
-
+  await expect(block).toHaveValue("25");
+  await expect(brush).toHaveValue("45");
+  await expect(brush).toBeDisabled();
+  await page.getByRole("button", { name: "Brush", exact: true }).click();
+  await expect(brush).toBeEnabled();
+  for (const [control, minimum, maximum] of [[block, "4", "25"], [brush, "8", "50"]]) {
+    await expect(control).toHaveAttribute("min", minimum);
+    await expect(control).toHaveAttribute("max", maximum);
+    await control.press("End");
+    await control.press("ArrowRight");
+    await expect(control).toHaveValue(maximum);
+    await control.press("Home");
+    await control.press("ArrowLeft");
+    await expect(control).toHaveValue(minimum);
+  }
+  await expect(page.locator(".range-ends span")).toHaveText(["4 px", "25 px"]);
+  await page.getByRole("button", { name: "Rectangle", exact: true }).click();
+  for (const value of [4, 25, 20]) {
+    await block.fill(String(value));
+    await expect(preview).toHaveAttribute("data-cell-size", String(value));
   }
   await draw(page);
-  await page.locator("#block").fill("50");
+  await block.fill("25");
   await expect(preview).toHaveAttribute("data-cell-size", "25");
-  await page.locator("#block").blur();
+  await block.blur();
   await page.getByRole("button", { name: "Undo", exact: true }).click();
-  await expect(preview).toHaveAttribute("data-cell-size", "48");
+  await expect(block).toHaveValue("20");
+  await expect(preview).toHaveAttribute("data-cell-size", "20");
+  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await expect(block).toHaveValue("25");
+  await expect(preview).toHaveAttribute("data-cell-size", "25");
+  await page.locator(".region-row").click();
+  await expect(page.locator(".tool-select")).toHaveAttribute("aria-pressed", "true");
+  await expect(block).toBeEnabled();
+  await block.fill("24");
+  await block.blur();
+  await expect(preview).toHaveAttribute("data-cell-size", "24");
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(block).toHaveValue("25");
   await page.getByRole("button", { name: "Brush", exact: true }).click();
-  for (const value of [8, 45, 240]) {
-    await page.locator("#diameter").fill(String(value));
-    await expect(page.locator(".brush-preview span")).toHaveCSS("width", `${value / 2}px`);
-    await expect(page.locator(".brush-preview span")).toHaveCSS("height", `${value / 2}px`);
+  for (const value of [8, 45, 50]) {
+    await brush.fill(String(value));
+    await expect(page.locator(".brush-preview span")).toHaveCSS("width", `${value}px`);
+    await expect(page.locator(".brush-preview span")).toHaveCSS("height", `${value}px`);
   }
   await expect(page.locator(".zoom-input")).toHaveValue(zoom);
-  await page.locator("#diameter").press("ArrowLeft");
-  await expect(page.locator(".brush-preview span")).toHaveCSS("width", "119.5px");
+  await brush.press("ArrowLeft");
+  await expect(page.locator(".brush-preview span")).toHaveCSS("width", "49px");
+  await brush.press("ArrowRight");
+  for (let appearance = 0; appearance < 2; appearance++) {
+    await expectCompactPreviews(page);
+    await page.getByLabel("Toggle color theme").click();
+  }
+  const pixels = () => preview.evaluate(canvas => [...canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data]);
+  const beforeZoom = await pixels();
+  await page.getByRole("button", { name: "Zoom in", exact: true }).click();
+  await expect(page.locator(".zoom-input")).not.toHaveValue(zoom);
+  await expectCompactPreviews(page);
+  expect(await pixels()).toEqual(beforeZoom);
 });
 
 test("header, attribution and previews remain available on mobile in both themes", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.goto("/");
+  await openImage(page);
   await page.getByRole("button", { name: "Brush", exact: true }).click();
   for (const locale of ["EN", "ES"]) {
     await page.getByRole("link", { name: locale, exact: true }).focus();
@@ -244,6 +327,9 @@ test("header, attribution and previews remain available on mobile in both themes
       await page.getByRole("button", { name: locale === "EN" ? "Settings and regions" : "Ajustes y regiones", exact: true }).click();
       await expect(page.locator(".block-preview")).toBeVisible();
       await expect(page.locator(".brush-preview")).toBeVisible();
+      await page.locator("#block").fill("25");
+      await page.locator("#diameter").fill("50");
+      await expectCompactPreviews(page);
       await expect(page.locator(".settings-dialog .status-privacy")).toHaveCount(0);
       const drawer = await page.locator(".settings-dialog").boundingBox();
       expect(Math.round(drawer.y + drawer.height)).toBe(Math.round((await page.locator(".site-footer").boundingBox()).y));
@@ -372,17 +458,25 @@ test("light mode uses neutral fills and keeps status privacy outside a long regi
   page.once("dialog", dialog => dialog.accept());
   await imageAction(page, "Close");
   await expect(page.getByRole("button", { name: "Export", exact: true })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Undo", exact: true })).toHaveCSS("color", "rgb(115, 115, 115)");
+  await expect(page.getByRole("button", { name: "Undo", exact: true })).toHaveCSS("color", "rgb(176, 176, 176)");
 });
 
 test("collapsing the inspector preserves edits, manual zoom and the centered image point", async ({ page }) => {
   await openImage(page);
+  await page.getByRole("button", { name: "Brush", exact: true }).click();
+  await page.locator("#diameter").fill("50");
+  await page.getByRole("button", { name: "Rectangle", exact: true }).click();
   await draw(page);
-  await page.locator("#diameter").fill("100");
   await page.getByRole("button", { name: "Zoom in", exact: true }).click();
   const canvas = page.getByTestId("editor-canvas");
   await canvas.hover();
+  const wheelDrawn = canvas.evaluate(element => new Promise(resolve => {
+    element.addEventListener("wheel", () => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    }, { once: true });
+  }));
   await page.mouse.wheel(15, 10);
+  await wheelDrawn;
   const centerPixel = () => canvas.evaluate(c => [...c.getContext("2d").getImageData(Math.floor(c.width / 2), Math.floor(c.height / 2), 1, 1).data]);
   const before = await canvas.boundingBox();
   const pixel = await centerPixel();
@@ -396,7 +490,7 @@ test("collapsing the inspector preserves edits, manual zoom and the centered ima
   await expect.poll(centerPixel).toEqual(pixel);
   await page.setViewportSize({ width: 375, height: 812 });
   await page.getByRole("button", { name: "Settings and regions", exact: true }).click();
-  await expect(page.locator("#diameter")).toHaveValue("100");
+  await expect(page.locator("#diameter")).toHaveValue("50");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Settings and regions", exact: true })).toBeFocused();
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -404,7 +498,7 @@ test("collapsing the inspector preserves edits, manual zoom and the centered ima
   await page.getByRole("button", { name: "Expand settings and regions" }).click();
   await expect(page.locator(".region-row")).toHaveCount(1);
   await expect(page.locator(".region-list li.selected")).toHaveCount(1);
-  await expect(page.locator("#diameter")).toHaveValue("100");
+  await expect(page.locator("#diameter")).toHaveValue("50");
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(page.locator(".region-row")).toHaveCount(0);
   await page.getByRole("button", { name: "Fit to view", exact: true }).click();
@@ -412,9 +506,9 @@ test("collapsing the inspector preserves edits, manual zoom and the centered ima
   await expect.poll(async () => (await centerPixel()).every((n, i) => Math.abs(n - [80, 100, 130, 255][i]) <= 2)).toBe(true);
 });
 
-test("grayscale mosaic is stable and brush size remains available with every tool", async ({ page }) => {
+test("grayscale mosaic is stable and brush diameter is enabled only with the brush tool", async ({ page }) => {
   await openImage(page);
-  await page.locator("#block").fill("40");
+  await page.locator("#block").fill("10");
   const pixels = () => page.locator(".block-preview").evaluate(c => [...c.getContext("2d").getImageData(0, 0, c.width, c.height).data]);
   const original = await pixels();
   const tones = new Set();
@@ -425,17 +519,23 @@ test("grayscale mosaic is stable and brush size remains available with every too
   }
   expect(grayscale).toBe(true);
   expect(tones.size).toBeGreaterThan(10);
-  await page.locator("#block").fill("35");
-  const fractional = await pixels();
-  await page.locator("#block").fill("41");
-  await page.locator("#block").fill("35");
-  expect(await pixels()).toEqual(fractional);
-  await page.locator("#block").fill("40");
+  await page.locator("#block").fill("15");
+  const alternate = await pixels();
+  await page.locator("#block").fill("21");
+  await page.locator("#block").fill("15");
+  expect(await pixels()).toEqual(alternate);
+  await page.locator("#block").fill("10");
   // A full cell is flat, and distant cells are not a repeated checkerboard tile.
   expect(original.slice(0, 4)).toEqual(original.slice(10 * 4, 10 * 4 + 4));
+  await page.getByRole("button", { name: "Brush", exact: true }).click();
+  await page.locator("#diameter").fill("40");
   for (const tool of ["Select", "Rectangle", "Brush", "Pan"]) {
     await page.getByRole("button", { name: tool, exact: true }).click();
+    await expect(page.locator("#block")).toBeEnabled();
     await expect(page.locator("#diameter")).toBeVisible();
+    if (tool === "Brush") await expect(page.locator("#diameter")).toBeEnabled();
+    else await expect(page.locator("#diameter")).toBeDisabled();
+    await expect(page.locator("#diameter")).toHaveValue("40");
     await expect(page.locator(".brush-preview")).toBeVisible();
   }
   await page.getByLabel("Toggle color theme").click();
@@ -445,24 +545,41 @@ test("grayscale mosaic is stable and brush size remains available with every too
 });
 
 test("block preview scales the same cells around a fixed center", async ({ page }) => {
-  await page.goto("/");
+  await openImage(page);
   let reference;
-  for (const value of [4, 35, 40, 96]) {
+  for (const value of [4, 15, 20, 25]) {
     await page.locator("#block").fill(String(value));
     const samples = await page.locator(".block-preview").evaluate((canvas, block) => {
       const ctx = canvas.getContext("2d");
       const center = canvas.width / 2;
+      const offset = Math.min(block, center / 2);
       // Sample the four cells touching the center, both near the origin and
-      // halfway through each cell. Their colors must stay anchored at every scale.
+      // farther inside the visible circle. Their colors stay anchored at every scale.
       return [-1, 1].flatMap(y => [-1, 1].map(x => ({
         near: [...ctx.getImageData(center + (x < 0 ? -1 : 0), center + (y < 0 ? -1 : 0), 1, 1).data],
-        middle: [...ctx.getImageData(Math.floor(center + x * block / 2), Math.floor(center + y * block / 2), 1, 1).data],
+        interior: [...ctx.getImageData(center + x * offset, center + y * offset, 1, 1).data],
       })));
     }, value);
-    const colors = samples.map(sample => sample.middle);
-    for (const sample of samples) expect(sample.near).toEqual(sample.middle);
+    const colors = samples.map(sample => sample.interior);
+    for (const sample of samples) expect(sample.near).toEqual(sample.interior);
     reference ??= colors;
     expect(colors).toEqual(reference);
+  }
+  for (const value of [4, 10, 20]) {
+    await page.locator("#block").fill(String(value));
+    const cells = await page.locator(".block-preview").evaluate((canvas, block) => {
+      const ctx = canvas.getContext("2d");
+      const center = canvas.width / 2;
+      const pixel = x => [...ctx.getImageData(x, center, 1, 1).data];
+      // A CSS pixel uses two backing pixels, so a block-wide cell ends here.
+      return {
+        center: pixel(center),
+        last: pixel(center + 2 * block - 1),
+        next: pixel(center + 2 * block),
+      };
+    }, value);
+    expect(cells.last).toEqual(cells.center);
+    expect(cells.next).not.toEqual(cells.center);
   }
 });
 
@@ -504,10 +621,12 @@ test("desktop inspector starts below the logo and icon tools keep hints and shor
           }
           const toggle = page.locator(".panel-heading button");
           await expect(toggle).toHaveAttribute("aria-expanded", String(!collapsed));
+          await expect(toggle).toBeEnabled();
           await toggle.click();
         }
       }
     }
+    await page.getByTestId("file-input").setInputFiles({ name: "test.png", mimeType: "image/png", buffer: fixture() });
     for (const [id, shortcut] of [["select", "V"], ["rect", "R"], ["brush", "B"], ["pan", "H"]]) {
       const tool = page.locator(`.tool-${id}`);
       await expect(tool).toHaveText("");
@@ -519,9 +638,169 @@ test("desktop inspector starts below the logo and icon tools keep hints and shor
       expect(icon.x + icon.width / 2).toBeCloseTo(button.x + button.width / 2, 0);
       await page.keyboard.press(shortcut.toLowerCase());
       await expect(tool).toHaveAttribute("aria-pressed", "true");
+      await expect(tool).toBeFocused();
     }
+    await imageAction(page, locale === "EN" ? "Close" : "Cerrar");
   }
 });
+
+for (const theme of ["light", "dark"]) {
+  test(`empty editor stays readable and its inspector can collapse in ${theme} mode`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+    await page.goto("/");
+    const toggle = page.locator(".panel-heading button");
+    await expect(page.locator(".panel")).not.toHaveAttribute("aria-disabled");
+    await expect(page.locator(".toolbar")).toHaveCSS("background-color", theme === "light" ? "rgb(255, 255, 255)" : "rgb(37, 41, 48)");
+    await expect(page.locator(".panel")).toHaveCSS("background-color", theme === "light" ? "rgb(250, 250, 250)" : "rgb(48, 53, 61)");
+    await expect(page.locator("#settings-content")).toHaveAttribute("aria-disabled", "true");
+    await expect(toggle).toHaveAttribute("aria-label", "Collapse settings and regions");
+    for (const method of ["click", "Enter", "Space"]) {
+      const activate = () => method === "click" ? toggle.click() : toggle.press(method);
+      await activate();
+      if (method !== "click") await expect(toggle).toBeFocused();
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await expect(toggle).toHaveAttribute("aria-label", "Expand settings and regions");
+      await expect(page.locator("#settings-content")).toBeHidden();
+      await activate();
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await expect(toggle).toHaveAttribute("aria-label", "Collapse settings and regions");
+      await expect(page.locator("#settings-content")).toBeVisible();
+      await expect(page.locator("#block")).toBeDisabled();
+      await expect(page.locator("#diameter")).toBeDisabled();
+      for (const tool of await page.locator(".tool").all()) await expect(tool).toBeDisabled();
+    }
+    const luminance = rgb => rgb.map(n => n / 255).map(n => n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4)
+      .reduce((sum, n, i) => sum + n * [0.2126, 0.7152, 0.0722][i], 0);
+    const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
+    const foreground = theme === "light" ? [176, 176, 176] : [161, 162, 172];
+    const textForeground = theme === "light" ? [115, 115, 115] : foreground;
+    // Light disabled icons use a visibly lighter gray; text retains its stronger contrast.
+    const controlContrast = theme === "light" ? 2 : 3;
+    const visible = await page.locator(".toolbar, .panel, .panel-heading strong, .range-label, .range-ends, .size-preview, .block-preview, .brush-preview, .regions-empty svg, .regions-empty strong, .regions-empty p, button:disabled, input:disabled").evaluateAll(elements => elements.filter(element => element.getClientRects().length).map(element => {
+      const rgb = color => color.match(/[\d.]+/g).slice(0, 3).map(Number);
+      let opacity = 1, background;
+      for (let ancestor = element; ancestor; ancestor = ancestor.parentElement) {
+        const style = getComputedStyle(ancestor);
+        opacity *= Number(style.opacity);
+        if (!background && !style.backgroundColor.endsWith(", 0)")) background = rgb(style.backgroundColor);
+      }
+      return { opacity, foreground: rgb(getComputedStyle(element).color), background, disabled: element.matches(":disabled"), iconControl: element.matches(".tool, .icon-button, input[type='range']") };
+    }));
+    for (const element of visible) {
+      expect(element.opacity).toBe(1);
+      expect(contrast(element.foreground, element.background)).toBeGreaterThanOrEqual(element.disabled && element.iconControl ? controlContrast : 4.5);
+      if (element.disabled) expect(element.foreground).toEqual(element.iconControl ? foreground : textForeground);
+    }
+    // Inspect painted pixels: native slider pseudo-element computed styles vary by engine.
+    for (const selector of ["#block", "#diameter"]) {
+      const range = page.locator(selector);
+      const box = await range.boundingBox();
+      const fraction = await range.evaluate(input => (Number(input.value) - Number(input.min)) / (Number(input.max) - Number(input.min)));
+      const clip = { x: Math.floor(box.x), y: Math.floor(box.y) - 8, width: Math.ceil(box.width), height: Math.ceil(box.height) + 16 };
+      const png = PNG.sync.read(await page.screenshot({ clip, scale: "css" }));
+      const same = (x, y) => foreground.every((value, channel) => Math.abs(png.data[(y * png.width + x) * 4 + channel] - value) <= 1);
+      const centerY = Math.round(box.y - clip.y + box.height / 2);
+      expect(same(Math.floor(png.width / 4), centerY)).toBe(true);
+      const centerX = Math.round(box.x - clip.x + 7 + (box.width - 14) * fraction);
+      let thumbPixels = 0;
+      for (let y = centerY - 7; y <= centerY + 7; y++)
+        for (let x = Math.max(0, centerX - 7); x <= Math.min(png.width - 1, centerX + 7); x++)
+          if (Math.abs(y - centerY) >= 3 && same(x, y)) thumbPixels++;
+      expect(thumbPixels).toBeGreaterThan(8);
+    }
+  });
+
+  test(`tools and settings require an open image in ${theme} mode`, async ({ page, browserName }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    for (const locale of ["EN", "ES"]) {
+      for (const width of [1440, 375]) {
+        await page.setViewportSize({ width, height: 812 });
+        await page.goto(locale === "EN" ? "/" : "/es/");
+        const settings = page.locator(width === 375 ? ".settings-action" : ".panel-heading button");
+        const expectDisabled = async () => {
+          for (const tool of await page.locator(".tool").all()) await expect(tool).toBeDisabled();
+          await expect(page.locator("#block")).toBeDisabled();
+          await expect(page.locator("#diameter")).toBeDisabled();
+          if (width === 375) await expect(settings).toBeDisabled();
+          else await expect(settings).toBeEnabled();
+          await expect(page.locator(".tool-rect")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+          await expect(page.locator(".open-action")).toBeEnabled();
+          await expect(page.locator(".paste-action")).toBeEnabled();
+          await expect(page.locator(".sample-link")).toBeEnabled();
+        };
+        await expectDisabled();
+        await page.locator(".paste-action").focus();
+        for (const key of ["v", "r", "b", "h"]) {
+          await page.keyboard.press(key);
+          await expect(page.locator(".paste-action")).toBeFocused();
+          await expect(page.locator(".tool-rect")).toHaveAttribute("aria-pressed", "true");
+        }
+        await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+        await expect(page.locator(".empty-state .primary")).toBeFocused();
+        await page.getByTestId("file-input").setInputFiles({ name: "test.png", mimeType: "image/png", buffer: fixture() });
+        await expect(page.getByTestId("editor-canvas")).toBeVisible();
+        for (const tool of await page.locator(".tool").all()) await expect(tool).toBeEnabled();
+        await expect(settings).toBeEnabled();
+        if (width === 375) await settings.click();
+        await expect(page.locator("#block")).toBeEnabled();
+        await expect(page.locator("#diameter")).toBeDisabled();
+        if (width === 375) await page.keyboard.press("Escape");
+        await imageAction(page, locale === "EN" ? "Close" : "Cerrar");
+        await expectDisabled();
+      }
+    }
+  });
+
+  test(`tool shortcuts move visible focus and respect editable fields and dialogs in ${theme} mode`, async ({ page, browserName }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await openImage(page);
+    await page.locator(".tool-brush").click();
+    await page.keyboard.press("r");
+    await expect(page.locator(".tool-rect")).toBeFocused();
+    await expect(page.locator(".tool-brush")).not.toBeFocused();
+    for (const [id, key] of [["select", "v"], ["rect", "r"], ["brush", "b"], ["pan", "h"]]) {
+      const button = page.locator(`.tool-${id}`);
+      for (const shortcut of [key, `Shift+Key${key.toUpperCase()}`]) {
+        await page.keyboard.press(shortcut);
+        await expect(button).toBeFocused();
+        await expect(button).toHaveAttribute("aria-pressed", "true");
+        await expect(page.locator(".tool:focus-visible")).toHaveCount(1);
+        await expect(page.locator(".tool:focus-visible")).toHaveClass(new RegExp(`tool-${id}`));
+        await expect(page.locator(".tool.active")).toHaveCount(1);
+      }
+      await page.keyboard.down(key);
+      await page.keyboard.down(key);
+      await page.keyboard.up(key);
+      await expect(button).toBeFocused();
+      await expect(button).toHaveAttribute("aria-pressed", "true");
+    }
+    await page.keyboard.press("r");
+    await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+    await expect(page.locator(".tool-brush")).toBeFocused();
+    await expect(page.locator(".tool-rect")).toHaveAttribute("aria-pressed", "true");
+    for (const selector of [".zoom-input", "#block"]) {
+      const field = page.locator(selector);
+      await field.focus();
+      await page.keyboard.press("b");
+      await expect(field).toBeFocused();
+      await expect(page.locator(".tool-rect")).toHaveAttribute("aria-pressed", "true");
+    }
+    await imageAction(page, "Export");
+    const cancel = page.getByRole("button", { name: "Cancel", exact: true });
+    await cancel.focus();
+    await page.keyboard.press("h");
+    await expect(cancel).toBeFocused();
+    await expect(page.locator(".tool-rect")).toHaveAttribute("aria-pressed", "true");
+    await cancel.click();
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.getByRole("button", { name: "Settings and regions", exact: true }).click();
+    const close = page.getByRole("button", { name: "Close settings", exact: true });
+    await close.focus();
+    await page.keyboard.press("h");
+    await expect(close).toBeFocused();
+    await expect(page.locator(".tool-rect")).toHaveAttribute("aria-pressed", "true");
+  });
+}
 
 test("tools start below actions beside the document title and file actions use accessible icons", async ({ page }) => {
   await page.goto("/");
@@ -641,7 +920,7 @@ test("file and rectangle icons stay distinct and zoom labels stay accessible", a
   await openImage(page);
   await draw(page);
   await expect(page.locator(".open-action svg.lucide-folder-open")).toBeVisible();
-  await expect(page.locator(".tool-rect svg.lucide-square")).toBeVisible();
+  await expect(page.locator(".tool-rect svg.lucide-square-dashed")).toBeVisible();
   await expect(page.locator(".region-icon svg.lucide-square")).toBeVisible();
   await expect(page.locator(".document-bar > svg.lucide-image")).toHaveAttribute("width", "16");
   for (const locale of ["EN", "ES"]) {
