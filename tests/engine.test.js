@@ -2,6 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   renderPixels,
+  bounds,
+  hitTest,
+  resolveTextEdit,
   contains,
   historyReducer,
   initialHistory,
@@ -76,3 +79,28 @@ test("both languages cover exactly the same interface strings", () =>
     Object.keys(messages.en).sort(),
     Object.keys(messages.es).sort(),
   ));
+
+test("text geometry and hit testing follow visible stacking", () => {
+  const text = { id: "t", kind: "text", x: 1, y: 2, w: 5, h: 3, text: "Hi" };
+  const rect = { id: "r", kind: "rect", x: 0, y: 0, w: 8, h: 8, block: 4 };
+  assert.deepEqual(bounds(text), { x: 1, y: 2, w: 5, h: 3 });
+  assert.equal(contains(text, 2, 3), true);
+  assert.equal(contains(text, 6, 3), false);
+  assert.equal(hitTest([text, rect], 2, 3), text);
+  assert.equal(hitTest([text, rect], 0, 0), rect);
+  assert.deepEqual(renderPixels(source, w, h, [text]), source);
+  assert.deepEqual(renderPixels(source, w, h, [text, rect]), renderPixels(source, w, h, [rect]));
+});
+test("one text session resolves to an immutable history change", () => {
+  const text = { id: "t", kind: "text", text: "Hello", x: 1, y: 1, w: 4, h: 3 };
+  const created = resolveTextEdit([], text);
+  const edited = resolveTextEdit(created, { ...text, text: "World" });
+  assert.equal(created[0].text, "Hello");
+  assert.equal(edited[0].text, "World");
+  assert.deepEqual(resolveTextEdit(edited, { ...text, text: " \n " }), []);
+  assert.deepEqual(resolveTextEdit([], { ...text, text: " " }), []);
+  let state = historyReducer(initialHistory, { type: "commit", ops: created });
+  state = historyReducer(state, { type: "commit", ops: edited });
+  assert.deepEqual(historyReducer(state, { type: "undo" }).present, created);
+  assert.deepEqual(historyReducer(historyReducer(state, { type: "undo" }), { type: "redo" }).present, edited);
+});

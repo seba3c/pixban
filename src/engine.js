@@ -1,6 +1,6 @@
 export const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 export function bounds(op) {
-  if (op.kind === "rect") return { x: op.x, y: op.y, w: op.w, h: op.h };
+  if (op.kind === "rect" || op.kind === "text") return { x: op.x, y: op.y, w: op.w, h: op.h };
   const xs = op.points.map((p) => p.x),
     ys = op.points.map((p) => p.y),
     r = op.diameter / 2;
@@ -12,7 +12,7 @@ export function bounds(op) {
   };
 }
 export function contains(op, x, y) {
-  if (op.kind === "rect")
+  if (op.kind === "rect" || op.kind === "text")
     return x >= op.x && x < op.x + op.w && y >= op.y && y < op.y + op.h;
   const r2 = (op.diameter / 2) ** 2;
   for (let i = 0; i < op.points.length; i++) {
@@ -32,6 +32,7 @@ export function renderPixels(source, width, height, ops) {
   const out = new Uint8ClampedArray(source),
     caches = new Map();
   for (const op of ops) {
+    if (op.kind !== "rect" && op.kind !== "brush") continue;
     const block = Math.max(2, Math.round(op.block)),
       b = bounds(op);
     let cache = caches.get(block);
@@ -101,4 +102,18 @@ export function historyReducer(state, action) {
       future: state.future.slice(1),
     };
   return state;
+}
+
+// Resolve one typing session without changing the source operations.
+export function resolveTextEdit(ops, edit) {
+  if (!edit) return ops;
+  if (!edit.text.trim()) return ops.filter(op => op.id !== edit.id);
+  return ops.some(op => op.id === edit.id)
+    ? ops.map(op => op.id === edit.id ? edit : op)
+    : [...ops, edit];
+}
+// Text is visually above masks, even when a mask was created later.
+export function hitTest(ops, x, y) {
+  return [...ops.filter(op => op.kind !== "text"), ...ops.filter(op => op.kind === "text")]
+    .reverse().find(op => contains(op, x, y));
 }
