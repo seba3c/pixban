@@ -11,7 +11,7 @@
 
 <hr>
 
-## ![](docs/assets/icons/readme/info.svg) Summary
+## ℹ️ Summary
 
 Pixelate faces, license plates, and other details with a rectangle or brush.
 Pixban processes images locally in your browser and exports at the original resolution.
@@ -19,18 +19,17 @@ Pixban processes images locally in your browser and exports at the original reso
 - You can use the live app at [**pixban.app**](https://pixban.app).
 - For help getting started, see the [**User guide**](docs/README.md).
 
-## ![](docs/assets/icons/layers.svg) Tech stack
+## 🛠️ Tech stack
 
-![Codex, primary development tool](https://img.shields.io/badge/Primary%20development%20tool-Codex-2563eb)
+![Codex](https://img.shields.io/badge/Codex-000000?style=plastic)
+![React](https://img.shields.io/badge/React-20232a?style=plastic&logo=react&logoColor=61dafb)
+![JavaScript](https://img.shields.io/badge/JavaScript-f7df1e?style=plastic&logo=javascript&logoColor=000000)
+![CSS](https://img.shields.io/badge/CSS-663399?style=plastic&logo=css&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-5850c6?style=plastic&logo=vite&logoColor=white)
+![Lucide icons](https://img.shields.io/badge/Lucide%20icons-9d3a48?style=plastic&logo=lucide&logoColor=white)
+![Playwright](https://img.shields.io/badge/Playwright-256f37?style=plastic)
 
-![React](https://img.shields.io/badge/React-555555)
-![JavaScript](https://img.shields.io/badge/JavaScript-555555)
-![CSS](https://img.shields.io/badge/CSS-555555)
-![Vite](https://img.shields.io/badge/Vite-555555)
-![Lucide icons](https://img.shields.io/badge/Lucide%20icons-555555)
-![Playwright](https://img.shields.io/badge/Playwright-555555)
-
-## ![](docs/assets/icons/readme/terminal.svg) Commands
+## ⌨️ Commands
 
 To run Pixban locally, use Node.js 22.12+ and npm. Run `npm ci` and `npm run dev`
 from the repository root, then open the local URL printed by Vite.
@@ -58,7 +57,7 @@ npm run build
 npm run preview
 ```
 
-## ![](docs/assets/icons/readme/heart.svg) Support the project
+## ❤️ Support the project
 
 If Pixban is useful to you, you can make a one-time or monthly contribution.
 Your support helps cover the cost of the pixban.app domain and gives me time to
