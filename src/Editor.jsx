@@ -3,6 +3,7 @@ import { bounds, clamp, hitTest } from "./engine.js";
 import { renderImage, textFont, textLineHeight } from "./render.js";
 export default function Editor({
   image,
+  suspended,
   ops,
   selected,
   onSelect,
@@ -73,6 +74,7 @@ export default function Editor({
     appliedView.current = { image, request: viewRequest };
   }, [image, viewRequest, size.w, size.h]);
   useEffect(() => {
+    if (suspended) return;
     const down = (e) => {
       if (
         e.code === "Space" &&
@@ -92,11 +94,12 @@ export default function Editor({
     window.addEventListener("keyup", up);
     window.addEventListener("blur", reset);
     return () => {
+      reset();
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
       window.removeEventListener("blur", reset);
     };
-  }, []);
+  }, [suspended]);
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       offscreen.current = renderImage(image, shown.filter(op => op.id !== textEdit?.id));

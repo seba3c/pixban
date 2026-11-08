@@ -444,6 +444,8 @@ test("visible actions support keyboard navigation and viewport layout", async ({
   await expect(page.locator(".paste-action")).toBeFocused();
   // Disabled history buttons are skipped in the native tab order.
   await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+  await expect(page.locator(".guide-action")).toBeFocused();
+  await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
   await expect(page.locator(".copy-action")).toBeFocused();
   await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
   await expect(page.locator(".action-bar .primary")).toBeFocused();
@@ -460,6 +462,150 @@ test("visible actions support keyboard navigation and viewport layout", async ({
       expect(toolbar.y + toolbar.height).toBeLessThanOrEqual(canvas.y);
     }
   }
+});
+
+async function expectGuideOverFileBarAndCanvas(page, guide) {
+  const fileBar = page.locator(".document-bar");
+  const guideHeader = guide.locator(".user-guide-heading");
+  const file = await fileBar.evaluate(element => {
+    const { x, y, width, height } = element.getBoundingClientRect();
+    return { x, y, width, height };
+  });
+  const canvas = await page.locator(".canvas-area").boundingBox();
+  expect(await guideHeader.boundingBox()).toEqual(file);
+  expect(await guide.boundingBox()).toEqual({ ...file, height: file.height + canvas.height });
+  await expect(fileBar).toBeHidden();
+  await expect(fileBar).toHaveJSProperty("inert", true);
+  expect(await guide.evaluate(element => {
+    const { left, right, top, bottom } = element.getBoundingClientRect();
+    return getComputedStyle(element).backgroundColor.startsWith("rgb(") &&
+      [left + 3, right - 3].every(x => [top + 3, bottom - 3].every(y =>
+        element.contains(document.elementFromPoint(x, y))
+      ));
+  })).toBe(true);
+  for (const property of ["font-family", "font-size", "font-weight"]) {
+    const value = await fileBar.locator(".image-name").evaluate((name, key) =>
+      getComputedStyle(name).getPropertyValue(key), property);
+    await expect(guideHeader.locator("h2")).toHaveCSS(property, value);
+  }
+  await expect(guideHeader.locator("svg.lucide-circle-help")).toHaveAttribute("width", "16");
+}
+
+test("the user guide covers the canvas and suspends editing until dismissed", async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 660 });
+  await page.emulateMedia({ colorScheme: "light" });
+  await openImage(page);
+  await draw(page);
+  const zoom = page.locator(".zoom-input");
+  await zoom.fill("180");
+  await zoom.press("Enter");
+  const trigger = page.locator(".guide-action");
+  const canvas = page.locator(".canvas-area");
+  const guide = page.getByRole("dialog", { name: "User guide" });
+  const close = guide.getByRole("button", { name: "Close user guide" });
+  const content = guide.locator(".user-guide-scroll");
+  await expect(page.locator(".action-divider + .guide-action + .toolbar-spacer")).toHaveCount(1);
+  await expect(trigger.locator("svg path")).toHaveCount(2);
+  await expect(trigger.locator("svg circle")).toHaveCount(0);
+  await trigger.click();
+  await expect(guide).toBeVisible();
+  await expect(close).toBeFocused();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(trigger).toHaveCSS("color", "rgb(37, 99, 235)");
+  await expectGuideOverFileBarAndCanvas(page, guide);
+  for (const selector of [".action-bar", ".toolbar", ".panel", ".canvas-area"]) {
+    await expect(page.locator(selector)).toHaveJSProperty("inert", true);
+  }
+  await expect(page.locator(".toolbar")).toHaveCSS("filter", "blur(2px)");
+  await expect(page.locator(".panel")).toHaveCSS("filter", "blur(2px)");
+  await expect(guide.getByRole("heading", { name: "Open an image" })).toBeVisible();
+  await expect(guide.getByRole("heading", { name: "Privacy and security" })).toHaveCount(1);
+  await expect.poll(() => guide.locator("img").evaluateAll(images =>
+    images.length > 0 && images.every(image => image.complete && image.naturalWidth > 0)
+  )).toBe(true);
+
+  await page.keyboard.press("Tab");
+  await expect(content).toBeFocused();
+  await page.keyboard.press("PageDown");
+  await expect.poll(() => content.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  await page.keyboard.press("Tab");
+  await expect(close).toBeFocused();
+  await guide.getByRole("heading", { name: "Open an image" }).click();
+  await expect(guide).toBeVisible();
+
+  await page.keyboard.press("Control+z");
+  await page.keyboard.press("b");
+  expect(await pasteFixture(page)).toBe(false);
+  await page.locator(".guide-backdrop").evaluate((element, bytes) => {
+    const data = new DataTransfer();
+    data.items.add(new File([new Uint8Array(bytes)], "dropped.png", { type: "image/png" }));
+    element.dispatchEvent(new DragEvent("dragenter", { bubbles: true, cancelable: true, dataTransfer: data }));
+    element.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: data }));
+  }, [...fixture()]);
+  await expect(page.locator(".drop-overlay")).toHaveCount(0);
+  await expect(page.locator(".image-name")).toHaveText("test.png");
+  await expect(page.locator(".region-row")).toHaveCount(1);
+  await expect(page.locator(".tool-rect")).toHaveAttribute("aria-pressed", "true");
+
+  const undo = await page.locator('.action-bar button[aria-label="Undo"]').boundingBox();
+  await page.mouse.click(undo.x + undo.width / 2, undo.y + undo.height / 2);
+  await expect(guide).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(".region-row")).toHaveCount(1);
+  await expect(zoom).toHaveValue("180");
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.locator(".region-row")).toHaveCount(0);
+  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await expect(page.locator(".region-row")).toHaveCount(1);
+
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  const viewport = await canvas.boundingBox();
+  await page.mouse.click(viewport.x + viewport.width / 2, viewport.y + viewport.height / 2);
+  await page.getByTestId("text-editor").fill("Keep this text");
+  await trigger.click();
+  await expect(page.getByTestId("text-editor")).toHaveCount(0);
+  await close.click();
+  await expect(page.locator(".region-row")).toHaveCount(2);
+  await expect(page.locator(".region-row").last()).toContainText("Keep this text");
+});
+
+test("the Spanish guide covers the mobile canvas with and without an image", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 620 });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto("/es/");
+  const trigger = page.locator(".guide-action");
+  const guide = page.getByRole("dialog", { name: "Guía de usuario" });
+  await trigger.click();
+  await expect(guide.getByRole("heading", { name: "Abrir una imagen" })).toBeVisible();
+  await expect(guide.getByRole("heading", { name: "Privacidad y seguridad" })).toHaveCount(1);
+  await expect(trigger).toHaveCSS("color", "rgb(248, 113, 113)");
+  expect(await guide.boundingBox()).toEqual(await page.locator(".canvas-area").boundingBox());
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+  await expect.poll(() => guide.locator("img").evaluateAll(images =>
+    images.length > 0 && images.every(image => image.complete && image.naturalWidth > 0)
+  )).toBe(true);
+  await guide.getByRole("button", { name: "Cerrar guía de usuario" }).click();
+  await expect(guide).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await guide.getByRole("heading", { name: "Abrir una imagen" }).click();
+  await page.keyboard.press("Escape");
+  await expect(guide).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await expect(page.getByTestId("editor-canvas")).toHaveCount(0);
+
+  await page.getByTestId("file-input").setInputFiles({ name: "test.png", mimeType: "image/png", buffer: fixture() });
+  await expect(page.getByTestId("editor-canvas")).toBeVisible();
+  const fileClose = await page.locator('.document-bar button[aria-label="Cerrar imagen"]').boundingBox();
+  await trigger.click();
+  await expectGuideOverFileBarAndCanvas(page, guide);
+  expect(await guide.getByRole("button", { name: "Cerrar guía de usuario" }).boundingBox()).toEqual(fileClose);
+  await page.mouse.click(fileClose.x + fileClose.width / 2, fileClose.y + fileClose.height / 2);
+  await expect(guide).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await expect(page.locator(".document-bar")).toBeVisible();
+  await expect(page.locator(".image-name")).toHaveText("test.png");
 });
 
 
@@ -1120,6 +1266,8 @@ for (const theme of ["light", "dark"]) {
           await expect(page.locator(".paste-action")).toBeFocused();
           await expect(page.locator(".tool-rect")).toHaveAttribute("aria-pressed", "true");
         }
+        await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+        await expect(page.locator(".guide-action")).toBeFocused();
         await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
         await expect(page.locator(".empty-state .primary")).toBeFocused();
         await page.getByTestId("file-input").setInputFiles({ name: "test.png", mimeType: "image/png", buffer: fixture() });
