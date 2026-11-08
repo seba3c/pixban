@@ -1,6 +1,8 @@
 export const messages = {
   en: {
     githubLink: "View source on GitHub",
+    sponsorLink: "Support Pixban on GitHub Sponsors",
+    support: "Support",
     imageActions: "Image actions",
     closeImage: "Close image",
     userGuide: "User guide",
@@ -110,6 +112,8 @@ export const messages = {
   },
   es: {
     githubLink: "Ver código en GitHub",
+    sponsorLink: "Apoyar Pixban en GitHub Sponsors",
+    support: "Apoyar",
     imageActions: "Acciones de imagen",
     closeImage: "Cerrar imagen",
     userGuide: "Guía de usuario",

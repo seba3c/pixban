@@ -1136,7 +1136,7 @@ main { width: 100%; max-width: none; min-height: 0; padding: 0; margin: 0; displ
 .site-footer a { text-decoration: none; }
 .copyright { white-space: nowrap; }
 .app-info { display: flex; align-items: center; gap: 4px; font-size: 11px; line-height: 14px; color: var(--muted); }
-.repository-link { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex-shrink: 0; color: inherit; text-decoration: none; }
+.repository-link, .sponsor-link { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 24px; padding-inline: 4px; flex-shrink: 0; }
 .repository-link:hover { color: var(--text); }
 .privacy-notice { display: flex; align-items: center; gap: 8px; font-size: 11px; line-height: 16px; margin-left: auto; min-width: 0; }
 .privacy-notice > svg { flex-shrink: 0; color: var(--accent); }
@@ -1188,8 +1188,9 @@ main { width: 100%; max-width: none; min-height: 0; padding: 0; margin: 0; displ
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: var(--surface);
+  background: var(--canvas);
 }
+:root[data-theme="dark"] .user-guide { background: var(--surface); }
 .user-guide-scroll {
   min-height: 0;
   flex: 1;

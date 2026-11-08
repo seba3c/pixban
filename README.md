@@ -19,6 +19,14 @@ Pixban processes images locally in your browser and exports at the original reso
 - You can use the live app at [**pixban.app**](https://pixban.app).
 - For help getting started, see the [**User guide**](docs/README.md).
 
+## Support the project
+
+If Pixban is useful to you, you can make a one-time or monthly contribution.
+Your support helps cover the cost of the pixban.app domain and gives me time to
+build new features, fix bugs, and improve the documentation.
+
+[Support Pixban on GitHub Sponsors](https://github.com/sponsors/seba3c)
+
 ## Tech stack
 
 React, JavaScript, CSS, Vite, Lucide icons, and Playwright.

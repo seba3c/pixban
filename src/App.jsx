@@ -7,6 +7,7 @@ import {
   ClipboardPaste,
   Copy,
   Github,
+  Heart,
   MousePointer2,
   SquareDashed,
   Paintbrush,
@@ -1077,10 +1078,16 @@ export default function App() {
             </a>
           </span>
           <div className="app-info">
-            <span className="app-version">v{APP_VERSION}</span>
             <a className="repository-link" href={REPOSITORY_URL} target="_blank" rel="noopener noreferrer"
-              title={t.githubLink} aria-label={t.githubLink}>
+              title={t.githubLink} aria-label={`v${APP_VERSION}, ${t.githubLink}`}>
+              <span className="app-version">v{APP_VERSION}</span>
               <Github size={13} aria-hidden="true" />
+            </a>
+            <span aria-hidden="true">·</span>
+            <a className="sponsor-link" href="https://github.com/sponsors/seba3c" target="_blank" rel="noopener noreferrer"
+              aria-label={t.sponsorLink}>
+              {t.support}
+              <Heart size={13} aria-hidden="true" />
             </a>
           </div>
           {!narrow && <div className="privacy-notice footer-privacy" title={t.privateLong}><ShieldCheck size={19} aria-hidden="true" /><div><strong>{t.private}</strong><p>{t.privateLong}</p></div></div>}
