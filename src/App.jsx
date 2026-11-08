@@ -35,6 +35,7 @@ import {
   Upload,
 } from "lucide-react";
 import Editor from "./Editor.jsx";
+import UserGuide from "./UserGuide.jsx";
 import { APP_VERSION, REPOSITORY_URL } from "./app-info.js";
 import sampleCar from "./assets/sample-car.webp";
 import { historyReducer, initialHistory, resolveTextEdit } from "./engine.js";
@@ -69,6 +70,9 @@ function IconButton({ label, children, className = "", ...props }) {
       {children}
     </button>
   );
+}
+function CloseDocumentButton(props) {
+  return <IconButton {...props}><X size={16} /></IconButton>;
 }
 function DisclosureButton({ label, expanded, controls, onClick }) {
   const Chevron = expanded ? ChevronsUp : ChevronsDown;
@@ -156,6 +160,8 @@ export default function App() {
     ),
   );
   const t = messages[lang];
+  const [guideOpen, setGuideOpen] = useState(false);
+  const guideButton = useRef();
   const [mobilePanel, setMobilePanel] = useState(null);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [toolSettingsCollapsed, setToolSettingsCollapsed] = useState(false);
@@ -322,7 +328,7 @@ export default function App() {
         ["INPUT", "SELECT", "TEXTAREA"].includes(
           document.activeElement.tagName,
         ) ||
-        !image || exportOpen || mobilePanel || busy
+        !image || guideOpen || exportOpen || mobilePanel || busy
       )
         return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
@@ -352,10 +358,10 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [image, ops, selected, exportOpen, mobilePanel, busy]);
+  }, [image, ops, selected, guideOpen, exportOpen, mobilePanel, busy]);
   useEffect(() => {
     const handler = (event) => {
-      if (event.defaultPrevented || busy || exportOpen || mobilePanel ||
+      if (event.defaultPrevented || busy || guideOpen || exportOpen || mobilePanel ||
         event.target?.closest?.("input, select, textarea, [contenteditable]:not([contenteditable='false'])")) return;
       const files = Array.from(event.clipboardData?.items ?? [])
         .filter(item => item.kind === "file").map(item => item.getAsFile()).filter(Boolean);
@@ -371,7 +377,7 @@ export default function App() {
     };
     window.addEventListener("paste", handler);
     return () => window.removeEventListener("paste", handler);
-  }, [busy, exportOpen, mobilePanel, dirty, lang]);
+  }, [busy, guideOpen, exportOpen, mobilePanel, dirty, lang]);
   function closeImage() {
     if (busy) return;
     finishText();
@@ -627,6 +633,16 @@ export default function App() {
       <Trash2 size={14} aria-hidden="true" />
     </IconButton>
   );
+  const openGuide = () => {
+    finishText();
+    dragCounter.current = 0;
+    setDragging(false);
+    setGuideOpen(true);
+  };
+  const closeGuide = () => {
+    flushSync(() => setGuideOpen(false));
+    guideButton.current?.focus({ preventScroll: true });
+  };
   const editsTitle = (
     <div className="section-title">
       <h2 className="section-heading" id="edits-heading">
@@ -805,10 +821,11 @@ export default function App() {
   );
   return (
     <div
-      className="app"
+      className={`app${guideOpen ? " guide-open" : ""}`}
       onDragEnter={(e) => {
         if (e.dataTransfer.types.includes("Files")) {
           e.preventDefault();
+          if (guideOpen) return;
           dragCounter.current++;
           setDragging(true);
         }
@@ -816,6 +833,7 @@ export default function App() {
       onDragOver={(e) => e.preventDefault()}
       onDragLeave={(e) => {
         e.preventDefault();
+        if (guideOpen) return;
         if (--dragCounter.current <= 0) {
           setDragging(false);
           dragCounter.current = 0;
@@ -823,6 +841,7 @@ export default function App() {
       }}
       onDrop={(e) => {
         e.preventDefault();
+        if (guideOpen) return;
         setDragging(false);
         dragCounter.current = 0;
         openFile(e.dataTransfer.files[0]);
@@ -835,11 +854,11 @@ export default function App() {
         accept="image/png,image/jpeg,image/webp"
         hidden
         onChange={(e) => {
-          openFile(e.target.files[0]);
+          if (!guideOpen) openFile(e.target.files[0]);
           e.target.value = "";
         }}
       />
-      <header className="header">
+      <header className="header" inert={guideOpen}>
         <a className="brand" href="#" onClick={(e) => e.preventDefault()}>
           <PixelLogo />
           pixban<span className="brand-dot">.</span>
@@ -882,7 +901,7 @@ export default function App() {
       </header>
       <main>
         <section className={`studio${!narrow && panelCollapsed ? " panel-collapsed" : ""}`}>
-          <nav className="action-bar" aria-label={t.imageActions}>
+          <nav className="action-bar" aria-label={t.imageActions} inert={guideOpen}>
             <IconButton className="secondary open-action" label={t.open} disabled={busy} onClick={() => fileInput.current.click()}><FolderOpen size={18} /></IconButton>
             <IconButton className="secondary paste-action" label={t.paste} disabled={busy} onClick={pasteImage}><ClipboardPaste size={18} /></IconButton>
             <span className="action-divider" />
@@ -900,11 +919,20 @@ export default function App() {
             >
               <Redo2 size={18} />
             </IconButton>
+            <span className="action-divider" />
+            <IconButton className="guide-action" label={t.userGuide} ref={guideButton}
+              disabled={busy} aria-haspopup="dialog" aria-expanded={guideOpen} onClick={openGuide}>
+              <svg width="18" height="18" viewBox="5 5 14 14" fill="none" stroke="currentColor"
+                strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                <path d="M12 17h.01" />
+              </svg>
+            </IconButton>
             <span className="toolbar-spacer" />
             <IconButton className="secondary copy-action" label={t.copyImage} disabled={!image || busy} onClick={copyImage}><Copy size={18} /></IconButton>
             <IconButton className="primary" label={t.exportAction} disabled={!image || busy} onClick={() => { setExportFailure(null); setExportOpen(true); }}><Download size={18} /></IconButton>
           </nav>
-          <nav className="toolbar" aria-label={t.tools} aria-disabled={!image}>
+          <nav className="toolbar" aria-label={t.tools} aria-disabled={!image || guideOpen} inert={guideOpen}>
             {tools.map(renderTool)}
             <div className="additional-tools" role="group" aria-label={t.additionalTools}>
               {renderTool(["text", Type, t.text, "T"])}
@@ -916,18 +944,19 @@ export default function App() {
                 onClick={e => openMobilePanel("settings", e.currentTarget)}><SlidersHorizontal size={18} /></IconButton>
             </div>}
           </nav>
-          {image && <div className="document-bar">
+          {image && <div className="document-bar" inert={guideOpen}>
             <ImageIcon size={16} aria-hidden="true" />
             <span className="image-name" title={image.name}>{image.name}</span>
-            <IconButton label={t.closeImage} disabled={busy} onClick={closeImage}><X size={16} /></IconButton>
+            <CloseDocumentButton label={t.closeImage} disabled={busy} onClick={closeImage} />
           </div>}
-          <div className="canvas-area" onWheelCapture={() => {
+          <div className="canvas-area" inert={guideOpen} onWheelCapture={() => {
             const focused = document.activeElement;
             if (focused?.classList.contains("zoom-input")) focused.blur();
           }}>
             {image ? (
               <Editor
                 image={image}
+                suspended={guideOpen}
                 ops={effectiveOps}
                 selected={selected}
                 onSelect={(id) => {
@@ -988,7 +1017,9 @@ export default function App() {
               <IconButton label={t.fit} onClick={() => setViewRequest(v => ({ mode: "fit", token: v.token + 1 }))}><Maximize size={20} /></IconButton>
             </nav>}
           </div>
-          <div className="canvas-bottom">
+          {guideOpen && <UserGuide lang={lang} title={t.userGuide} onClose={closeGuide}
+            closeButton={<CloseDocumentButton label={t.closeGuide} onClick={closeGuide} autoFocus />} />}
+          <div className="canvas-bottom" inert={guideOpen}>
             <span className="image-status">
               <span className={`status-dot ${image ? "loaded" : ""}`} />
               {image ? <>
@@ -1022,7 +1053,7 @@ export default function App() {
             </div>}
             {narrow && <div className="privacy-notice status-privacy" title={t.privateLong}><ShieldCheck size={19} aria-hidden="true" /><div><strong>{t.private}</strong><p>{t.privateLong}</p></div></div>}
           </div>
-          {!narrow && <aside className="panel" aria-labelledby="settings-heading">
+          {!narrow && <aside className="panel" aria-labelledby="settings-heading" inert={guideOpen}>
             <div className="panel-heading">
               <IconButton className="panel-toggle" type="button"
                 label={panelCollapsed ? t.showInspector : t.hideInspector}
@@ -1038,7 +1069,7 @@ export default function App() {
           </aside>}
 
         </section>
-        <footer className="site-footer" ref={footerRef}>
+        <footer className="site-footer" ref={footerRef} inert={guideOpen}>
           <span className="copyright">
             @pixban 2026 by {" "}
             <a href="https://juanaylola.com/" target="_blank" rel="noopener noreferrer">
@@ -1055,6 +1086,8 @@ export default function App() {
           {!narrow && <div className="privacy-notice footer-privacy" title={t.privateLong}><ShieldCheck size={19} aria-hidden="true" /><div><strong>{t.private}</strong><p>{t.privateLong}</p></div></div>}
         </footer>
       </main>
+      {guideOpen && <div className="guide-backdrop" aria-hidden="true"
+        onMouseDown={e => e.preventDefault()} onClick={closeGuide} />}
       {narrow && <dialog className="settings-dialog" ref={mobileDialog}
         aria-labelledby={mobilePanel === "edits" ? "edits-heading" : "settings-heading"}
         onCancel={e => { e.preventDefault(); closeMobilePanel(); }}
@@ -1080,6 +1113,7 @@ export default function App() {
       {toast && (
         <div
           className={`toast ${toast.error ? "error" : ""}`}
+          inert={guideOpen}
           role={toast.error ? "alert" : "status"}
         >
           {toast.error ? <X size={16} /> : <Check size={16} />}
