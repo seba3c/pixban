@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { bounds, contains, clamp, renderPixels } from "./engine.js";
+import { bounds, clamp, hitTest } from "./engine.js";
+import { renderImage, textFont, textLineHeight } from "./render.js";
 export default function Editor({
   image,
   ops,
@@ -15,6 +16,11 @@ export default function Editor({
   t,
   theme,
   sampleHint,
+  textEdit,
+  onTextStart,
+  onTextChange,
+  onTextFinish,
+  onTextCancel,
 }) {
   const drawRef = useRef(),
     wrap = useRef(),
@@ -22,7 +28,8 @@ export default function Editor({
     gesture = useRef(),
     space = useRef(false),
     offscreen = useRef(),
-    appliedView = useRef();
+    appliedView = useRef(),
+    textInput = useRef();
   const [size, setSize] = useState({ w: 600, h: 500 }),
     [pan, setPan] = useState({ x: 0, y: 0 }),
     [draft, setDraft] = useState(null),
@@ -44,6 +51,11 @@ export default function Editor({
       ? ops.map((o) => (o.id === draft.op.id ? draft.op : o))
       : [...ops, draft.op]
     : ops;
+  useEffect(() => {
+    if (!textEdit) return;
+    const frame = requestAnimationFrame(() => textInput.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [textEdit?.id]);
   useEffect(() => {
     const ro = new ResizeObserver(([entry]) =>
       setSize({ w: entry.contentRect.width, h: entry.contentRect.height }),
@@ -87,25 +99,11 @@ export default function Editor({
   }, []);
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      const output = document.createElement("canvas");
-      output.width = image.width;
-      output.height = image.height;
-      output
-        .getContext("2d")
-        .putImageData(
-          new ImageData(
-            renderPixels(image.data, image.width, image.height, shown),
-            image.width,
-            image.height,
-          ),
-          0,
-          0,
-        );
-      offscreen.current = output;
+      offscreen.current = renderImage(image, shown.filter(op => op.id !== textEdit?.id));
       drawRef.current();
     });
     return () => cancelAnimationFrame(frame);
-  }, [image, ops, draft]);
+  }, [image, ops, draft, textEdit]);
   function draw() {
     const el = canvas.current;
     if (!el) return;
@@ -179,8 +177,9 @@ export default function Editor({
       return;
     }
     if (tool === "select") {
+      const hit = hitTest(ops, p.x, p.y);
       const op = ops.find((o) => o.id === selected);
-      if (op?.kind === "rect") {
+      if (op?.kind === "rect" && hit?.kind !== "text") {
         const corners = [
           ["nw", op.x, op.y],
           ["ne", op.x + op.w, op.y],
@@ -195,13 +194,17 @@ export default function Editor({
           return;
         }
       }
-      const hit = [...ops].reverse().find((o) => contains(o, p.x, p.y));
       onSelect(hit?.id || null);
-      if (hit?.kind === "rect")
-        gesture.current = { type: "move", start: p, op: hit };
+      if (hit?.kind === "rect" || hit?.kind === "text")
+        gesture.current = { type: "move", start: p, op: hit, x: e.clientX, y: e.clientY };
       return;
     }
     if (p.x < 0 || p.y < 0 || p.x > image.width || p.y > image.height) return;
+    if (tool === "text") {
+      const hit = hitTest(ops.filter(op => op.kind === "text"), p.x, p.y);
+      onTextStart(hit || { x: clamp(p.x, 0, image.width - 1), y: clamp(p.y, 0, image.height - 1) });
+      return;
+    }
     const op = {
       id: crypto.randomUUID(),
       kind: tool,
@@ -242,10 +245,11 @@ export default function Editor({
         g.op = { ...g.op, points: [...g.op.points, q] };
       setDraft({ op: g.op });
     } else if (g.type === "move") {
+      if (g.op.kind === "text" && !g.result && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 4) return;
       const op = {
         ...g.op,
-        x: clamp(g.op.x + q.x - g.start.x, 0, image.width - g.op.w),
-        y: clamp(g.op.y + q.y - g.start.y, 0, image.height - g.op.h),
+        x: clamp(g.op.x + q.x - g.start.x, 0, Math.max(0, image.width - (g.op.kind === "text" ? 1 : g.op.w))),
+        y: clamp(g.op.y + q.y - g.start.y, 0, Math.max(0, image.height - (g.op.kind === "text" ? 1 : g.op.h))),
       };
       g.result = op;
       setDraft({ replace: true, op });
@@ -266,10 +270,12 @@ export default function Editor({
       setDraft({ replace: true, op });
     }
   }
-  function up() {
+  function up(e) {
     const g = gesture.current;
-    gesture.current = null;
     if (!g) return;
+    const movingText = g.type === "move" && g.op.kind === "text";
+    if (movingText) move(e);
+    gesture.current = null;
     if (
       g.type === "new" &&
       (g.op.kind !== "rect" || (g.op.w >= 1 && g.op.h >= 1))
@@ -277,6 +283,7 @@ export default function Editor({
       onCommit([...ops, g.op]);
     else if (g.result)
       onCommit(ops.map((o) => (o.id === g.op.id ? g.result : o)));
+    else if (movingText) onTextStart(g.op);
     setDraft(null);
   }
   return (
@@ -291,6 +298,8 @@ export default function Editor({
           cursor:
             tool === "pan"
               ? "grab"
+              : tool === "text"
+                ? "text"
               : tool === "select"
                 ? "default"
                 : tool === "brush"
@@ -312,8 +321,28 @@ export default function Editor({
           } else setPan((p) => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
         }}
       />
-      <div className="canvas-hint">
-        {sampleHint || (tool === "rect"
+      {textEdit && <div className="text-edit-clip" style={{
+        left: origin.x, top: origin.y, width: image.width * scale, height: image.height * scale,
+      }}>
+        <textarea ref={textInput} key={textEdit.id} className="text-editor" data-testid="text-editor"
+          aria-label={t.textContent} aria-describedby="text-edit-hint" autoFocus wrap="off" spellCheck={false}
+          value={textEdit.text}
+          style={{ left: textEdit.x * scale, top: textEdit.y * scale,
+            width: Math.max(textEdit.w, textEdit.fontSize * 3) * scale + 2,
+            height: textEdit.h * scale + 2,
+            font: textFont(textEdit.fontSize * scale),
+            lineHeight: `${textLineHeight(textEdit.fontSize) * scale}px`, color: textEdit.color }}
+          onChange={e => onTextChange(e.target.value)}
+          onBlur={() => onTextFinish()}
+          onKeyDown={e => {
+            e.stopPropagation();
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+            if (e.key === "Escape") { e.preventDefault(); onTextCancel(); }
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); onTextFinish(); }
+          }} />
+      </div>}
+      <div className="canvas-hint" id="text-edit-hint">
+        {textEdit ? t.textEditingTip : tool === "text" ? t.textTip : sampleHint || (tool === "rect"
           ? t.tip
           : tool === "brush"
             ? t.brushTip

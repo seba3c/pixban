@@ -1,12 +1,13 @@
 import { useEffect, useReducer, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import {
+  Type,
   ArrowUpRight,
   FolderOpen,
   ClipboardPaste,
   Copy,
   Github,
   MousePointer2,
-  Square,
   SquareDashed,
   Paintbrush,
   Hand,
@@ -21,12 +22,13 @@ import {
   ZoomIn,
   ZoomOut,
   Trash2,
-  ChevronRight,
+  ChevronsDown,
+  ChevronsUp,
+  PanelRightClose,
+  PanelRightOpen,
   X,
   Check,
   Image as ImageIcon,
-  PanelRightClose,
-  PanelRightOpen,
   SlidersHorizontal,
   ShieldCheck,
   Layers,
@@ -35,7 +37,8 @@ import {
 import Editor from "./Editor.jsx";
 import { APP_VERSION, REPOSITORY_URL } from "./app-info.js";
 import sampleCar from "./assets/sample-car.webp";
-import { historyReducer, initialHistory, renderPixels } from "./engine.js";
+import { historyReducer, initialHistory, resolveTextEdit } from "./engine.js";
+import { measureText, renderImage } from "./render.js";
 import { messages, preference, persist } from "./i18n.js";
 import { localePath, pathLocale, renderGuide, seo, updatePageMetadata } from "./seo.js";
 const DEFAULT_BLOCK = 25;
@@ -47,12 +50,7 @@ async function encodeImage(image, ops, format) {
   const canvas = document.createElement("canvas");
   canvas.width = image.width;
   canvas.height = image.height;
-  const pixels = document.createElement("canvas");
-  pixels.width = canvas.width;
-  pixels.height = canvas.height;
-  pixels.getContext("2d").putImageData(new ImageData(
-    renderPixels(image.data, image.width, image.height, ops), image.width, image.height,
-  ), 0, 0);
+  const pixels = renderImage(image, ops);
   const ctx = canvas.getContext("2d");
   if (format === "jpeg") {
     ctx.fillStyle = "white";
@@ -71,6 +69,13 @@ function IconButton({ label, children, className = "", ...props }) {
       {children}
     </button>
   );
+}
+function DisclosureButton({ label, expanded, controls, onClick }) {
+  const Chevron = expanded ? ChevronsUp : ChevronsDown;
+  return <IconButton className="section-toggle" type="button" label={label}
+    aria-expanded={expanded} aria-controls={controls} onClick={onClick}>
+    <span className="section-toggle-face"><Chevron size={14} aria-hidden="true" /></span>
+  </IconButton>;
 }
 function ZoomInput({ zoom, setZoom, disabled, label }) {
   const [draft, setDraft] = useState(null);
@@ -151,23 +156,18 @@ export default function App() {
     ),
   );
   const t = messages[lang];
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [mobilePanel, setMobilePanel] = useState(null);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [toolSettingsCollapsed, setToolSettingsCollapsed] = useState(false);
+  const [editsCollapsed, setEditsCollapsed] = useState(false);
   const [narrow, setNarrow] = useState(() => matchMedia("(max-width: 680px)").matches);
-  const settingsDialog = useRef(), settingsButton = useRef(), footerRef = useRef();
+  const mobileDialog = useRef(), mobilePanelTrigger = useRef(), mobileCloseButton = useRef(), footerRef = useRef();
   useEffect(() => {
     const media = matchMedia("(max-width: 680px)");
-    const change = () => { setNarrow(media.matches); setSettingsOpen(false); };
+    const change = () => setNarrow(media.matches);
     media.addEventListener("change", change);
     return () => media.removeEventListener("change", change);
   }, []);
-  useEffect(() => {
-    if (settingsOpen) settingsDialog.current?.showModal();
-    else if (settingsDialog.current?.open) {
-      settingsDialog.current.close();
-      settingsButton.current?.focus({ preventScroll: true });
-    }
-  }, [settingsOpen, narrow]);
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) => {
       document.documentElement.style.setProperty("--footer-height", `${entry.borderBoxSize?.[0]?.blockSize ?? footerRef.current.getBoundingClientRect().height}px`);
@@ -193,7 +193,12 @@ export default function App() {
     [toast, setToast] = useState(null),
     [dragging, setDragging] = useState(false),
     [exported, setExported] = useState("[]"),
-    [slider, setSlider] = useState(null);
+    [slider, setSlider] = useState(null),
+    [textEdit, setTextEdit] = useState(null),
+    [textStyle, setTextStyle] = useState({ fontSize: 32, color: "#000000" });
+  const textEditRef = useRef(null), opsRef = useRef(ops);
+  opsRef.current = ops;
+  const updateTextEdit = next => { textEditRef.current = next; setTextEdit(next); };
   const fileInput = useRef(),
     toolButtons = useRef({}),
     loadId = useRef(0),
@@ -201,16 +206,61 @@ export default function App() {
     downloadUrl = useRef(),
     exportInFlight = useRef(false),
     dragCounter = useRef(0);
-  const dirty = JSON.stringify(ops) !== exported;
-  const active = ops.find((o) => o.id === selected);
+  const dirty = JSON.stringify(resolveTextEdit(ops, textEdit)) !== exported;
+  const active = textEdit || ops.find((o) => o.id === selected);
+  const settingsKind = tool === "select" ? active?.kind : tool;
+  const textSettings = settingsKind === "text";
+  const pixelSettings = settingsKind === "rect" || settingsKind === "brush";
   const effectiveBlock = slider ?? active?.block ?? block;
-  const effectiveOps =
-    slider && active
+  const resizedText = active?.kind === "text" && slider !== null
+    ? measureText({ ...active, fontSize: slider }) : null;
+  const effectiveFontSize = resizedText?.fontSize ?? active?.fontSize ?? textStyle.fontSize;
+  const effectiveOps = resolveTextEdit(
+    slider !== null && active && active.kind !== "text"
       ? ops.map((o) => (o.id === active.id ? { ...o, block: slider } : o))
-      : ops;
+      : ops, resizedText ?? textEdit);
   const commit = (next) => {
+    if (JSON.stringify(next) === JSON.stringify(opsRef.current)) return;
+    opsRef.current = next;
     dispatch({ type: "commit", ops: next });
   };
+  const finishText = () => {
+    const edit = textEditRef.current;
+    if (!edit) return opsRef.current;
+    const next = resolveTextEdit(opsRef.current, edit);
+    updateTextEdit(null);
+    commit(next);
+    if (!next.some(op => op.id === edit.id)) setSelected(null);
+    return next;
+  };
+  const startText = op => {
+    finishText();
+    const next = measureText(op.kind === "text" ? op : {
+      id: crypto.randomUUID(), kind: "text", text: "", ...op, ...textStyle,
+    });
+    setSelected(next.id);
+    setSlider(null);
+    // Inline editing must live outside the modal mobile inspector.
+    setMobilePanel(null);
+    updateTextEdit(next);
+  };
+  const changeTextStyle = patch => {
+    setTextStyle(style => ({ ...style, ...patch }));
+    if (active?.kind !== "text") return;
+    const next = measureText({ ...active, ...patch });
+    if (textEditRef.current) updateTextEdit(next);
+    else commit(ops.map(op => op.id === active.id ? next : op));
+  };
+  useEffect(() => {
+    const finishOutside = event => {
+      if (textEditRef.current && !event.target.closest?.(".text-editor")) {
+        // Commit before the same pointer event reaches selection or image actions.
+        flushSync(() => finishText());
+      }
+    };
+    document.addEventListener("pointerdown", finishOutside, true);
+    return () => document.removeEventListener("pointerdown", finishOutside, true);
+  });
   useEffect(() => {
     document.documentElement.lang = lang;
     updatePageMetadata(lang);
@@ -272,7 +322,7 @@ export default function App() {
         ["INPUT", "SELECT", "TEXTAREA"].includes(
           document.activeElement.tagName,
         ) ||
-        !image || exportOpen || settingsOpen || busy
+        !image || exportOpen || mobilePanel || busy
       )
         return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
@@ -288,21 +338,24 @@ export default function App() {
         remove();
       }
       if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-        const tools = { v: "select", r: "rect", b: "brush", h: "pan" };
+        const tools = { v: "select", r: "rect", b: "brush", t: "text", h: "pan" };
         const nextTool = tools[e.key.toLowerCase()];
         if (nextTool) {
           e.preventDefault();
+          finishText();
           setTool(nextTool);
+          if (nextTool !== "select") setSelected(null);
+          setSlider(null);
           toolButtons.current[nextTool]?.focus({ preventScroll: true });
         }
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [image, ops, selected, exportOpen, settingsOpen, busy]);
+  }, [image, ops, selected, exportOpen, mobilePanel, busy]);
   useEffect(() => {
     const handler = (event) => {
-      if (event.defaultPrevented || busy || exportOpen || settingsOpen ||
+      if (event.defaultPrevented || busy || exportOpen || mobilePanel ||
         event.target?.closest?.("input, select, textarea, [contenteditable]:not([contenteditable='false'])")) return;
       const files = Array.from(event.clipboardData?.items ?? [])
         .filter(item => item.kind === "file").map(item => item.getAsFile()).filter(Boolean);
@@ -318,9 +371,10 @@ export default function App() {
     };
     window.addEventListener("paste", handler);
     return () => window.removeEventListener("paste", handler);
-  }, [busy, exportOpen, settingsOpen, dirty, lang]);
+  }, [busy, exportOpen, mobilePanel, dirty, lang]);
   function closeImage() {
     if (busy) return;
+    finishText();
     if (dirty && !window.confirm(t.closeImageConfirm)) return;
     loadId.current++;
     if (downloadUrl.current) {
@@ -329,13 +383,15 @@ export default function App() {
     }
     fileInput.current.value = "";
     dragCounter.current = 0;
-    setSettingsOpen(false);
+    setMobilePanel(null);
     setImage(null);
     dispatch({ type: "reset" });
     setSelected(null);
     setTool("rect");
     setBlock(DEFAULT_BLOCK);
     setDiameter(DEFAULT_DIAMETER);
+    updateTextEdit(null);
+    setTextStyle({ fontSize: 32, color: "#000000" });
     setZoom(1);
     setViewRequest({ mode: "fit", token: 0 });
     setFormat("png");
@@ -350,11 +406,12 @@ export default function App() {
   async function openFile(file, isSample = false, requestId) {
     if (requestId !== undefined && requestId !== loadId.current) return;
     if (!file) return;
+    const pendingOps = finishText();
     if (!Object.hasOwn(IMAGE_EXTENSIONS, file.type)) {
       setToast({ error: true, key: "badFile" });
       return;
     }
-    if (dirty && !window.confirm(t.discard)) return;
+    if (JSON.stringify(pendingOps) !== exported && !window.confirm(t.discard)) return;
     const id = requestId ?? ++loadId.current;
     setBusy(true);
     const url = URL.createObjectURL(file);
@@ -379,6 +436,7 @@ export default function App() {
       setExported("[]");
       setTool("rect");
       setSlider(null);
+      setMobilePanel(null);
     } catch (err) {
       if (id === loadId.current)
         setToast({
@@ -391,7 +449,7 @@ export default function App() {
     }
   }
   async function pasteImage() {
-    if (busy || exportOpen || settingsOpen) return;
+    if (busy || exportOpen || mobilePanel) return;
     if (!navigator.clipboard?.read) {
       setToast({ error: true, key: "clipboardUnavailable" });
       return;
@@ -433,7 +491,7 @@ export default function App() {
     }
   }
   async function copyImage() {
-    if (!image || busy || exportInFlight.current || exportOpen || settingsOpen) return;
+    if (!image || busy || exportInFlight.current || exportOpen || mobilePanel) return;
     if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
       setToast({ error: true, key: "clipboardCopyUnavailable" });
       return;
@@ -442,10 +500,11 @@ export default function App() {
     setBusy(true);
     setCopying(true);
     setToast(null);
-    const snapshot = JSON.stringify(ops);
+    const exportOps = finishText();
+    const snapshot = JSON.stringify(exportOps);
     try {
       // Call write during the click; defer encoding without losing user activation.
-      const png = Promise.resolve().then(() => encodeImage(image, ops, "png"));
+      const png = Promise.resolve().then(() => encodeImage(image, exportOps, "png"));
       // A constructor/write rejection can happen before the browser consumes png.
       png.catch(() => {});
       await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
@@ -464,9 +523,10 @@ export default function App() {
     exportInFlight.current = true;
     setBusy(true);
     setExportFailure(null);
-    const snapshot = JSON.stringify(ops);
+    const exportOps = finishText();
+    const snapshot = JSON.stringify(exportOps);
     try {
-      const blob = await encodeImage(image, ops, format);
+      const blob = await encodeImage(image, exportOps, format);
       const extension = IMAGE_EXTENSIONS[blob.type];
       if (!extension || (blob.type !== `image/${format}` && blob.type !== "image/png"))
         throw new Error("encode");
@@ -491,149 +551,257 @@ export default function App() {
   }
   const tools = [
     ["select", MousePointer2, t.select, "V"],
+    ["pan", Hand, t.pan, "H"],
     ["rect", SquareDashed, t.rect, "R"],
     ["brush", Paintbrush, t.brush, "B"],
-    ["pan", Hand, t.pan, "H"],
   ];
+  const renderTool = ([id, Icon, label, shortcut]) => (
+    <button
+      key={id}
+      ref={button => { toolButtons.current[id] = button; }}
+      className={`tool tool-${id} ${tool === id ? "active" : ""}`}
+      aria-label={label}
+      aria-pressed={tool === id}
+      title={`${label} (${shortcut})`}
+      disabled={!image}
+      onClick={() => {
+        setTool(id);
+        if (id !== "select") setSelected(null);
+        setSlider(null);
+      }}
+    >
+      <Icon size={20} />
+    </button>
+  );
   const finishSlider = () => {
-    if (slider !== null && active && slider !== active.block)
+    if (resizedText) {
+      if (textEditRef.current?.id === resizedText.id) updateTextEdit(resizedText);
+      else commit(resolveTextEdit(opsRef.current, resizedText));
+    } else if (slider !== null && active && slider !== active.block) {
       commit(
         ops.map((o) => (o.id === active.id ? { ...o, block: slider } : o)),
       );
+    }
     setSlider(null);
   };
+  const openMobilePanel = (panel, trigger) => {
+    mobilePanelTrigger.current = trigger;
+    setMobilePanel(panel);
+  };
+  const closeMobilePanel = () => {
+    if (mobilePanel === "settings" && slider !== null) finishSlider();
+    setMobilePanel(null);
+  };
+  useEffect(() => {
+    if (mobilePanel && !narrow) {
+      closeMobilePanel();
+    } else if (mobilePanel) {
+      mobileDialog.current?.showModal();
+      mobileCloseButton.current?.focus({ preventScroll: true });
+    } else if (mobileDialog.current?.open) {
+      mobileDialog.current.close();
+      if (!textEditRef.current) mobilePanelTrigger.current?.focus({ preventScroll: true });
+    }
+  }, [mobilePanel, narrow]);
+  const settingsFolded = !narrow && toolSettingsCollapsed;
+  const editsFolded = !narrow && editsCollapsed;
+  const settingsTitle = (
+    <div className="section-title">
+      <h2 className="section-heading" id="settings-heading">{t.toolSettings}</h2>
+      {!narrow && <DisclosureButton expanded={!toolSettingsCollapsed} controls="tool-settings-body"
+        label={toolSettingsCollapsed ? t.expandToolSettings : t.collapseToolSettings}
+        onClick={() => {
+          if (!toolSettingsCollapsed && slider !== null) finishSlider();
+          setToolSettingsCollapsed(value => !value);
+        }} />}
+    </div>
+  );
+  const diameterLabel = active?.kind === "brush" ? t.nextStrokeDiameter : t.diameter;
+  const clearEditsButton = ops.length > 0 && (
+    <IconButton label={t.clear} type="button" onClick={() => {
+      if (confirm(t.clearConfirm)) {
+        commit([]);
+        setSelected(null);
+      }
+    }}>
+      <Trash2 size={14} aria-hidden="true" />
+    </IconButton>
+  );
+  const editsTitle = (
+    <div className="section-title">
+      <h2 className="section-heading" id="edits-heading">
+        {t.regions}
+        <span>{ops.length}</span>
+      </h2>
+      {narrow ? clearEditsButton : <DisclosureButton expanded={!editsCollapsed} controls="edits-body"
+        label={editsCollapsed ? t.expandEdits : t.collapseEdits}
+        onClick={() => setEditsCollapsed(value => !value)} />}
+    </div>
+  );
   const settingsPanel = (
-    <>
-      <section className="settings">
-        <span className="eyebrow">{active ? t.selected : t.next}</span>
-        <div className="range-label">
-          <label htmlFor="block">{t.block}</label>
-          <output>
-            {effectiveBlock}
-            <small> px</small>
-          </output>
-        </div>
-        <input
-          id="block"
-          type="range"
-          min="4"
-          max="25"
-          step="1"
-          value={effectiveBlock}
-          disabled={!image}
-          onChange={(e) => {
-            const n = Number(e.target.value);
-            setBlock(n);
-            if (active) setSlider(n);
-          }}
-          onPointerUp={finishSlider}
-          onKeyUp={finishSlider}
-          onBlur={finishSlider}
-        />
-        <div className="range-ends">
-          <span>4 px</span>
-          <span>25 px</span>
-        </div>
-        <div className="size-preview">
-          <BlockPreview block={effectiveBlock} label={`${t.block}: ${effectiveBlock} px`} />
-        </div>
-          <div className="brush-settings">
-            <div className="range-label">
-              <label htmlFor="diameter">{t.diameter}</label>
+    <section className={`inspector-section settings${settingsFolded ? " is-collapsed" : ""}`}>
+      {settingsTitle}
+      <div className="section-fold">
+        <div id="tool-settings-body" inert={settingsFolded} aria-disabled={!image}>
+          {active && <span className="eyebrow">{t.selected}</span>}
+          {!textSettings && !pixelSettings && (
+            <div className="inspector-empty">
+              <SlidersHorizontal size={28} strokeWidth={1.2} aria-hidden="true" />
+              <strong>{t.emptyToolSettings}</strong>
+              <p>{t.emptyToolSettingsHint}</p>
+            </div>
+          )}
+          {textSettings && <>
+            <div className="settings-row">
+              <label htmlFor="text-size">{t.fontSize}</label>
+              <output htmlFor="text-size">{effectiveFontSize}<small> px</small></output>
+            </div>
+            <input id="text-size" type="range" min="8" max="256" step="1" disabled={!image}
+              value={effectiveFontSize} aria-valuetext={`${effectiveFontSize} ${t.pixels}`}
+              onChange={e => {
+                const fontSize = e.target.valueAsNumber;
+                setTextStyle(style => ({ ...style, fontSize }));
+                if (active?.kind === "text") setSlider(fontSize);
+              }}
+              onPointerUp={finishSlider} onPointerCancel={finishSlider}
+              onKeyUp={finishSlider} onBlur={finishSlider} />
+            <div className="range-ends">
+              <span>8 px</span>
+              <span>256 px</span>
+            </div>
+            <div className="settings-row">
+              <label htmlFor="text-color">{t.textColor}</label>
+              <input id="text-color" type="color" disabled={!image}
+                value={active?.color ?? textStyle.color} onChange={e => changeTextStyle({ color: e.target.value })} />
+            </div>
+          </>}
+          {pixelSettings && <>
+            <div className="settings-row">
+              <label htmlFor="block">{t.block}</label>
               <output>
-                {diameter}
+                {effectiveBlock}
                 <small> px</small>
               </output>
             </div>
             <input
-              id="diameter"
+              id="block"
               type="range"
-              min="8"
-              max="50"
-              value={diameter}
-              disabled={!image || tool !== "brush"}
-              onChange={(e) => setDiameter(Number(e.target.value))}
-            />
-            <div className="size-preview">
-              <div
-                className="brush-preview"
-                role="img"
-                aria-label={`${t.diameter}: ${diameter} px`}
-              >
-                <span style={{ width: diameter, height: diameter }} />
-              </div>
-            </div>
-          </div>
-      </section>
-      <section className="regions">
-        <div className="section-title">
-          <h2>
-            {t.regions}
-            <span>{ops.length}</span>
-          </h2>
-          {ops.length > 0 && (
-            <IconButton
-              label={t.clear}
-              onClick={() => {
-                if (confirm(t.clearConfirm)) {
-                  commit([]);
-                  setSelected(null);
-                }
+              min="4"
+              max="25"
+              step="1"
+              value={effectiveBlock}
+              disabled={!image}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                setBlock(n);
+                if (active) setSlider(n);
               }}
-            >
-              <Trash2 size={14} />
-            </IconButton>
+              onPointerUp={finishSlider}
+              onKeyUp={finishSlider}
+              onBlur={finishSlider}
+            />
+            <div className="range-ends">
+              <span>4 px</span>
+              <span>25 px</span>
+            </div>
+            <div className="size-preview">
+              <BlockPreview block={effectiveBlock} label={`${t.block}: ${effectiveBlock} px`} />
+            </div>
+            {tool === "brush" && <div className="brush-settings">
+              <div className="settings-row">
+                <label htmlFor="diameter">{diameterLabel}</label>
+                <output>
+                  {diameter}
+                  <small> px</small>
+                </output>
+              </div>
+              <input
+                id="diameter"
+                type="range"
+                min="8"
+                max="50"
+                value={diameter}
+                disabled={!image}
+                onChange={(e) => setDiameter(Number(e.target.value))}
+              />
+              <div className="size-preview">
+                <div
+                  className="brush-preview"
+                  role="img"
+                  aria-label={`${diameterLabel}: ${diameter} px`}
+                >
+                  <span style={{ width: diameter, height: diameter }} />
+                </div>
+              </div>
+            </div>}
+          </>}
+        </div>
+      </div>
+    </section>
+  );
+  const editsPanel = (
+    <section className={`inspector-section regions${editsFolded ? " is-collapsed" : ""}`}>
+      {editsTitle}
+      <div className="section-fold">
+        <div id="edits-body" className="edits-body" inert={editsFolded}>
+          {!narrow && clearEditsButton && <div className="clear-edits">{clearEditsButton}</div>}
+          {ops.length === 0 ? (
+            <div className="inspector-empty">
+              <Layers size={28} strokeWidth={1.2} />
+              <strong>{t.emptyRegions}</strong>
+              <p>{t.emptyRegionsHint}</p>
+            </div>
+          ) : (
+            <ol className="region-list">
+              {ops.map((op, i) => (
+                <li
+                  key={op.id}
+                  className={`${op.id === selected ? "selected" : ""} ${op.kind === "text" ? "text-row" : ""}`}
+                >
+                  <button
+                    className="region-row"
+                    onKeyDown={e => {
+                      if (op.kind !== "text" || e.key !== "Enter") return;
+                      e.preventDefault();
+                      if (!e.repeat) {
+                        setTool("select");
+                        startText(op);
+                      }
+                    }}
+                    onClick={() => {
+                      setSelected(op.id);
+                      setTool("select");
+                      setSlider(null);
+                    }}
+                  >
+                    <span className="region-icon">
+                      {op.kind === "text" ? <Type size={16} /> : op.kind === "rect" ? (
+                        <SquareDashed size={16} />
+                      ) : (
+                        <Paintbrush size={16} />
+                      )}
+                    </span>
+                    <span>
+                      {t[op.kind]} {i + 1}
+                      <small>{op.kind === "text" ? op.text.replace(/\n/g, " ") : `${op.block} px`}</small>
+                    </span>
+                  </button>
+                  <IconButton
+                    label={`${t.delete} ${i + 1}`}
+                    onClick={() => {
+                      commit(ops.filter((o) => o.id !== op.id));
+                      if (selected === op.id) setSelected(null);
+                    }}
+                  >
+                    <X size={13} />
+                  </IconButton>
+                </li>
+              ))}
+            </ol>
           )}
         </div>
-        {ops.length === 0 ? (
-          <div className="regions-empty">
-            <Layers size={28} strokeWidth={1.2} />
-            <strong>{t.emptyRegions}</strong>
-            <p>{t.emptyRegionsHint}</p>
-          </div>
-        ) : (
-          <ol className="region-list">
-            {ops.map((op, i) => (
-              <li
-                key={op.id}
-                className={op.id === selected ? "selected" : ""}
-              >
-                <button
-                  className="region-row"
-                  onClick={() => {
-                    setSelected(op.id);
-                    setTool("select");
-                    setSlider(null);
-                  }}
-                >
-                  <span className="region-icon">
-                    {op.kind === "rect" ? (
-                      <Square size={16} />
-                    ) : (
-                      <Paintbrush size={16} />
-                    )}
-                  </span>
-                  <span>
-                    {op.kind === "rect" ? t.region : t.stroke} {i + 1}
-                    <small>{op.block} px</small>
-                  </span>
-                  <ChevronRight size={14} />
-                </button>
-                <IconButton
-                  label={`${t.delete} ${i + 1}`}
-                  onClick={() => {
-                    commit(ops.filter((o) => o.id !== op.id));
-                    if (selected === op.id) setSelected(null);
-                  }}
-                >
-                  <X size={13} />
-                </IconButton>
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
-    </>
+      </div>
+    </section>
   );
   return (
     <div
@@ -713,7 +881,7 @@ export default function App() {
         </div>
       </header>
       <main>
-        <section className={`studio ${panelCollapsed ? "panel-collapsed" : ""}`}>
+        <section className={`studio${!narrow && panelCollapsed ? " panel-collapsed" : ""}`}>
           <nav className="action-bar" aria-label={t.imageActions}>
             <IconButton className="secondary open-action" label={t.open} disabled={busy} onClick={() => fileInput.current.click()}><FolderOpen size={18} /></IconButton>
             <IconButton className="secondary paste-action" label={t.paste} disabled={busy} onClick={pasteImage}><ClipboardPaste size={18} /></IconButton>
@@ -737,27 +905,16 @@ export default function App() {
             <IconButton className="primary" label={t.exportAction} disabled={!image || busy} onClick={() => { setExportFailure(null); setExportOpen(true); }}><Download size={18} /></IconButton>
           </nav>
           <nav className="toolbar" aria-label={t.tools} aria-disabled={!image}>
-            {tools.map(([id, Icon, label, key]) => (
-              <button
-                key={id}
-                ref={button => { toolButtons.current[id] = button; }}
-                className={`tool tool-${id} ${tool === id ? "active" : ""}`}
-                aria-label={label}
-                aria-pressed={tool === id}
-                title={`${label} (${key})`}
-                disabled={!image}
-                onClick={() => {
-                  setTool(id);
-                  if (id !== "select") setSelected(null);
-                  setSlider(null);
-                }}
-              >
-                <Icon size={20} />
-              </button>
-            ))}
-            {narrow && <IconButton className="settings-action" ref={settingsButton} label={t.settings} disabled={!image} onClick={() => setSettingsOpen(true)}>
-              <SlidersHorizontal size={18} />
-            </IconButton>}
+            {tools.map(renderTool)}
+            <div className="additional-tools" role="group" aria-label={t.additionalTools}>
+              {renderTool(["text", Type, t.text, "T"])}
+            </div>
+            {narrow && <div className="mobile-panel-actions">
+              <IconButton className="edits-action" label={t.regions} disabled={!image} aria-haspopup="dialog"
+                onClick={e => openMobilePanel("edits", e.currentTarget)}><Layers size={18} /></IconButton>
+              <IconButton className="settings-action" label={t.settings} disabled={!image} aria-haspopup="dialog"
+                onClick={e => openMobilePanel("settings", e.currentTarget)}><SlidersHorizontal size={18} /></IconButton>
+            </div>}
           </nav>
           {image && <div className="document-bar">
             <ImageIcon size={16} aria-hidden="true" />
@@ -786,6 +943,14 @@ export default function App() {
                 viewRequest={viewRequest}
                 t={t}
                 theme={theme}
+                textEdit={textEdit}
+                onTextStart={startText}
+                onTextChange={text => updateTextEdit(measureText({ ...textEditRef.current, text }))}
+                onTextFinish={finishText}
+                onTextCancel={() => {
+                  if (!ops.some(op => op.id === textEditRef.current?.id)) setSelected(null);
+                  updateTextEdit(null);
+                }}
                 sampleHint={image.isSample && ops.length === 0 ? t.sampleHint : null}
               />
             ) : (
@@ -857,14 +1022,19 @@ export default function App() {
             </div>}
             {narrow && <div className="privacy-notice status-privacy" title={t.privateLong}><ShieldCheck size={19} aria-hidden="true" /><div><strong>{t.private}</strong><p>{t.privateLong}</p></div></div>}
           </div>
-          {!narrow && <aside className="panel">
+          {!narrow && <aside className="panel" aria-labelledby="settings-heading">
             <div className="panel-heading">
-              {!panelCollapsed && <strong>{t.settings}</strong>}
-              <IconButton label={panelCollapsed ? t.expandSettings : t.collapseSettings} aria-expanded={!panelCollapsed} aria-controls="settings-content" onClick={() => setPanelCollapsed(v => !v)}>
-                {panelCollapsed ? <PanelRightOpen size={18} /> : <PanelRightClose size={18} />}
+              <IconButton className="panel-toggle" type="button"
+                label={panelCollapsed ? t.showInspector : t.hideInspector}
+                aria-expanded={!panelCollapsed} aria-controls="settings-content"
+                onClick={() => {
+                  if (!panelCollapsed && slider !== null) finishSlider();
+                  setPanelCollapsed(value => !value);
+                }}>
+                {panelCollapsed ? <PanelRightOpen size={20} aria-hidden="true" /> : <PanelRightClose size={20} aria-hidden="true" />}
               </IconButton>
             </div>
-            <div id="settings-content" aria-disabled={!image} hidden={panelCollapsed}>{settingsPanel}</div>
+            <div id="settings-content" hidden={panelCollapsed}>{settingsPanel}{editsPanel}</div>
           </aside>}
 
         </section>
@@ -885,13 +1055,14 @@ export default function App() {
           {!narrow && <div className="privacy-notice footer-privacy" title={t.privateLong}><ShieldCheck size={19} aria-hidden="true" /><div><strong>{t.private}</strong><p>{t.privateLong}</p></div></div>}
         </footer>
       </main>
-      {narrow && <dialog className="settings-dialog" ref={settingsDialog}
-        aria-label={t.settings} onCancel={e => { e.preventDefault(); setSettingsOpen(false); }}
-        onClick={e => { if (e.target === settingsDialog.current) setSettingsOpen(false); }}>
-        <div className="settings-dialog-header"><strong>{t.settings}</strong>
-          <IconButton label={t.closeSettings} onClick={() => setSettingsOpen(false)}><X size={18} /></IconButton>
+      {narrow && <dialog className="settings-dialog" ref={mobileDialog}
+        aria-labelledby={mobilePanel === "edits" ? "edits-heading" : "settings-heading"}
+        onCancel={e => { e.preventDefault(); closeMobilePanel(); }}
+        onClick={e => { if (e.target === mobileDialog.current) closeMobilePanel(); }}>
+        <div className="settings-dialog-header">
+          <IconButton ref={mobileCloseButton} label={mobilePanel === "edits" ? t.closeEdits : t.closeSettings} onClick={closeMobilePanel}><X size={18} /></IconButton>
         </div>
-        {settingsPanel}
+        <div id="settings-content">{mobilePanel === "edits" ? editsPanel : mobilePanel === "settings" && settingsPanel}</div>
       </dialog>}
       {dragging && (
         <div className="drop-overlay">

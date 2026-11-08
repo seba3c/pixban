@@ -4,6 +4,13 @@
 
 A browser-based image pixelation editor that processes images locally on your device.
 
+Use **Text (T)** to click an image and add multiline text. Enter inserts a line;
+Ctrl/⌘+Enter or clicking away saves, and Escape cancels the current edit.
+Click existing text with Select or Text to edit it. With Select, drag text to move it.
+You can also press Enter on a focused text row in Edits. Settings include a font size
+slider (8–256 px) and a color picker. Text stays above pixelation and is included in
+downloads and clipboard copies at the original image resolution.
+
 ## Tech stack
 
 React, JavaScript, CSS, Vite, Lucide icons, and Playwright.
