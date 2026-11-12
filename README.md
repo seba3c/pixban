@@ -11,7 +11,7 @@
 
 <hr>
 
-## Summary
+## ℹ️ Summary
 
 Pixelate faces, license plates, and other details with a rectangle or brush.
 Pixban processes images locally in your browser and exports at the original resolution.
@@ -19,11 +19,17 @@ Pixban processes images locally in your browser and exports at the original reso
 - You can use the live app at [**pixban.app**](https://pixban.app).
 - For help getting started, see the [**User guide**](docs/README.md).
 
-## Tech stack
+## 🛠️ Tech stack
 
-React, JavaScript, CSS, Vite, Lucide icons, and Playwright.
+![Codex](https://img.shields.io/badge/Codex-000000?style=plastic)
+![React](https://img.shields.io/badge/React-20232a?style=plastic&logo=react&logoColor=61dafb)
+![JavaScript](https://img.shields.io/badge/JavaScript-f7df1e?style=plastic&logo=javascript&logoColor=000000)
+![CSS](https://img.shields.io/badge/CSS-663399?style=plastic&logo=css&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-5850c6?style=plastic&logo=vite&logoColor=white)
+![Lucide icons](https://img.shields.io/badge/Lucide%20icons-9d3a48?style=plastic&logo=lucide&logoColor=white)
+![Playwright](https://img.shields.io/badge/Playwright-256f37?style=plastic)
 
-## Commands
+## ⌨️ Commands
 
 To run Pixban locally, use Node.js 22.12+ and npm. Run `npm ci` and `npm run dev`
 from the repository root, then open the local URL printed by Vite.
@@ -50,3 +56,11 @@ npm run build
 # Preview the production build
 npm run preview
 ```
+
+## ❤️ Support the project
+
+If Pixban is useful to you, you can make a one-time or monthly contribution.
+Your support helps cover the cost of the pixban.app domain and gives me time to
+build new features, fix bugs, and improve the documentation.
+
+[Support Pixban on GitHub Sponsors](https://github.com/sponsors/seba3c)

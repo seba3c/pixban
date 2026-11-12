@@ -476,6 +476,7 @@ async function expectGuideOverFileBarAndCanvas(page, guide) {
   expect(await guide.boundingBox()).toEqual({ ...file, height: file.height + canvas.height });
   await expect(fileBar).toBeHidden();
   await expect(fileBar).toHaveJSProperty("inert", true);
+  await expect(guideHeader).toHaveCSS("background-color", await fileBar.evaluate(element => getComputedStyle(element).backgroundColor));
   expect(await guide.evaluate(element => {
     const { left, right, top, bottom } = element.getBoundingClientRect();
     return getComputedStyle(element).backgroundColor.startsWith("rgb(") &&
@@ -512,6 +513,7 @@ test("the user guide covers the canvas and suspends editing until dismissed", as
   await expect(close).toBeFocused();
   await expect(trigger).toHaveAttribute("aria-expanded", "true");
   await expect(trigger).toHaveCSS("color", "rgb(37, 99, 235)");
+  await expect(guide).toHaveCSS("background-color", await canvas.evaluate(element => getComputedStyle(element).backgroundColor));
   await expectGuideOverFileBarAndCanvas(page, guide);
   for (const selector of [".action-bar", ".toolbar", ".panel", ".canvas-area"]) {
     await expect(page.locator(selector)).toHaveJSProperty("inert", true);
@@ -580,6 +582,7 @@ test("the Spanish guide covers the mobile canvas with and without an image", asy
   await expect(guide.getByRole("heading", { name: "Abrir una imagen" })).toBeVisible();
   await expect(guide.getByRole("heading", { name: "Privacidad y seguridad" })).toHaveCount(1);
   await expect(trigger).toHaveCSS("color", "rgb(248, 113, 113)");
+  await expect(guide).toHaveCSS("background-color", "rgb(37, 41, 48)");
   expect(await guide.boundingBox()).toEqual(await page.locator(".canvas-area").boundingBox());
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
   await expect.poll(() => guide.locator("img").evaluateAll(images =>
