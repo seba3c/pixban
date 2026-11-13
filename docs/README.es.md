@@ -1,6 +1,6 @@
 # Guía de usuario de Pixban
 
-Pixban permite pixelar partes de una imagen y añadir texto desde el navegador. Puedes probar las herramientas con **Probar con una imagen de ejemplo**.
+Pixban permite pixelar partes de una imagen, añadir texto y resaltar zonas con elipses desde el navegador. Puedes probar las herramientas con **Probar con una imagen de ejemplo**.
 
 ## Abrir una imagen
 
@@ -11,15 +11,17 @@ Pixban admite imágenes **PNG, JPEG y WebP** de hasta **32 megapíxeles**.
 
 ## Herramientas de edición
 
-- ![](assets/icons/mouse-pointer-2.svg) **Seleccionar** (`V`). Selecciona una edición. Arrastra un rectángulo o un texto para moverlo. Arrastra las esquinas de un rectángulo para cambiar su tamaño. Haz clic en un texto para editarlo.
+- ![](assets/icons/mouse-pointer-2.svg) **Seleccionar** (`V`). Selecciona una edición. Arrastra un rectángulo, una elipse o un texto para moverlo. Arrastra las esquinas de un rectángulo o una elipse para cambiar su tamaño. Haz clic en un texto para editarlo.
 - ![](assets/icons/hand.svg) **Desplazar** (`H`). Arrastra para mover la vista. Mantén pulsado `Espacio` y arrastra para desplazarla temporalmente mientras usas otra herramienta.
 - ![](assets/icons/square-dashed.svg) **Rectángulo pixelado** (`R`). Arrastra sobre el área que quieres pixelar.
 - ![](assets/icons/paintbrush.svg) **Pincel de pixelado** (`B`). Pinta sobre los detalles que quieres pixelar.
 - ![](assets/icons/type.svg) **Texto** (`T`). Haz clic para añadir o editar texto. Pulsa `Intro` para insertar otra línea. Pulsa `Ctrl/⌘+Intro` o haz clic fuera para guardar. Pulsa `Esc` para cancelar la edición en curso.
 
+- ![](assets/icons/circle.svg) **Elipse** (`E`). Arrastra para resaltar una zona con un contorno de interior transparente. Mantén `Mayús` para dibujar un círculo. Selecciona el interior o el contorno para moverla y usa los tiradores de las esquinas para cambiar su tamaño. No admite relleno sólido.
+
 ## Ajustes e historial
 
-- ![](assets/icons/sliders-horizontal.svg) En **Ajustes de herramienta**, configura la herramienta activa o la edición seleccionada. El **Tamaño del bloque** va de 4 a 25 px para rectángulos y trazos. El **Diámetro del pincel** va de 8 a 50 px y se aplica a los trazos nuevos. Para el texto, ajusta el **Tamaño de letra** (8–256 px) y el **Color del texto**.
+- ![](assets/icons/sliders-horizontal.svg) En **Ajustes de herramienta**, configura la herramienta activa o la edición seleccionada. El **Tamaño del bloque** va de 4 a 25 px para rectángulos y trazos. El **Diámetro del pincel** va de 8 a 50 px y se aplica a los trazos nuevos. Para el texto, ajusta el **Tamaño de letra** (8–256 px) y el **Color del texto**. Para las elipses, configura el **Grosor del trazo** (1–25 px; inicialmente 4 px) y el **Color del trazo** (inicialmente rojo). Los ajustes se aplican a la elipse seleccionada y a las siguientes elipses.
 - ![](assets/icons/layers.svg) **Ediciones** muestra los cambios. Selecciona una entrada para ajustarla, usa ![](assets/icons/x.svg) **Eliminar edición** para quitarla o pulsa ![](assets/icons/trash-2.svg) **Eliminar todo** y confirma para quitar todas las ediciones. En móvil, **Ajustes** y **Ediciones** se abren desde la barra de herramientas.
 - ![](assets/icons/undo-2.svg) Usa **Deshacer** con `Ctrl/⌘+Z`. ![](assets/icons/redo-2.svg) Usa **Rehacer** con `Ctrl/⌘+Mayús+Z` o `Ctrl/⌘+Y`.
 - Usa los controles de zoom o pulsa ![](assets/icons/maximize.svg) **Ajustar a la ventana**. En escritorio también puedes introducir directamente un porcentaje de zoom.
@@ -30,7 +32,7 @@ Pixban admite imágenes **PNG, JPEG y WebP** de hasta **32 megapíxeles**.
 - ![](assets/icons/download.svg) **Exportar** abre el selector de formato. Pixban selecciona inicialmente el formato original. Elige **PNG** o **WebP** para conservar la transparencia, o **JPEG** para usar un fondo blanco. Pulsa **Descargar imagen** para guardar una copia. Si el navegador no admite el formato elegido, Pixban descarga un PNG.
 - ![](assets/icons/copy.svg) **Copiar al portapapeles** copia la imagen editada como PNG. Si el portapapeles no está disponible, usa **Exportar** para descargar un archivo.
 
-Las dos opciones mantienen la resolución original e integran el pixelado y el texto en la copia. El archivo original se conserva intacto.
+Las dos opciones mantienen la resolución original e integran el pixelado, el texto y las elipses en la copia. El archivo original se conserva intacto.
 
 ## Privacidad y seguridad
 

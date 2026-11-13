@@ -1,6 +1,6 @@
 # Pixban user guide
 
-Pixban lets you pixelate parts of an image and add text in your browser. You can try the tools with **Try a sample image**.
+Pixban lets you pixelate parts of an image, add text and highlight areas with ellipses in your browser. You can try the tools with **Try a sample image**.
 
 ## Open an image
 
@@ -11,15 +11,17 @@ Pixban accepts **PNG, JPEG and WebP** images up to **32 megapixels**.
 
 ## Editing tools
 
-- ![](assets/icons/mouse-pointer-2.svg) **Select** (`V`). Select an edit. Drag a rectangle or text to move it. Drag a rectangle's corner handles to resize it. Click existing text to edit it.
+- ![](assets/icons/mouse-pointer-2.svg) **Select** (`V`). Select an edit. Drag a rectangle, ellipse or text to move it. Drag a rectangle’s or ellipse’s corner handles to resize it. Click existing text to edit it.
 - ![](assets/icons/hand.svg) **Pan** (`H`). Drag to move the view. Hold `Space` and drag to pan temporarily while using another tool.
 - ![](assets/icons/square-dashed.svg) **Pixelated rectangle** (`R`). Drag across the area you want to pixelate.
 - ![](assets/icons/paintbrush.svg) **Pixelated brush** (`B`). Paint over the details you want to pixelate.
 - ![](assets/icons/type.svg) **Text** (`T`). Click to add or edit text. Press `Enter` for a new line. Press `Ctrl/⌘+Enter` or click outside to save. Press `Esc` to cancel the current edit.
 
+- ![](assets/icons/circle.svg) **Ellipse** (`E`). Drag to highlight an area with an outline and transparent interior. Hold `Shift` to draw a circle. Select its interior or outline to move it, and use the corner handles to resize it. Solid fills are not available.
+
 ## Settings and history
 
-- ![](assets/icons/sliders-horizontal.svg) Use **Tool settings** to configure the active tool or selected edit. **Block size** ranges from 4 to 25 px for rectangles and brush strokes. **Brush diameter** ranges from 8 to 50 px and applies to new strokes. For text, set **Font size** (8–256 px) and **Text color**.
+- ![](assets/icons/sliders-horizontal.svg) Use **Tool settings** to configure the active tool or selected edit. **Block size** ranges from 4 to 25 px for rectangles and brush strokes. **Brush diameter** ranges from 8 to 50 px and applies to new strokes. For text, set **Font size** (8–256 px) and **Text color**. For ellipses, set **Stroke width** (1–25 px; initially 4 px) and **Stroke color** (initially red). Settings apply to the selected ellipse and subsequent ellipses.
 - ![](assets/icons/layers.svg) **Edits** lists your changes. Select an entry to adjust it, use ![](assets/icons/x.svg) **Delete edit** to remove it, or choose ![](assets/icons/trash-2.svg) **Clear all** to remove all edits after confirming. On mobile, **Settings** and **Edits** open from the toolbar.
 - ![](assets/icons/undo-2.svg) **Undo** with `Ctrl/⌘+Z`. ![](assets/icons/redo-2.svg) **Redo** with `Ctrl/⌘+Shift+Z` or `Ctrl/⌘+Y`.
 - Use the zoom controls or choose ![](assets/icons/maximize.svg) **Fit to view**. On desktop, you can also enter a zoom percentage directly.
@@ -30,7 +32,7 @@ Pixban accepts **PNG, JPEG and WebP** images up to **32 megapixels**.
 - ![](assets/icons/download.svg) **Export** opens the format picker. Pixban initially selects the source format. Choose **PNG** or **WebP** to preserve transparency, or **JPEG** for a white background. Choose **Download image** to save a copy. If the browser does not support the selected format, Pixban downloads a PNG instead.
 - ![](assets/icons/copy.svg) **Copy to clipboard** copies the edited image as PNG. If clipboard access is unavailable, use **Export** to download a file.
 
-Both options keep the original resolution and flatten pixelation and text into the copy. Your original file stays intact.
+Both options keep the original resolution and flatten pixelation, text and ellipses into the copy. Your original file stays intact.
 
 ## Privacy and security
 

@@ -7,13 +7,14 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
 </p>
 
-<p align="center">A browser-based editor for pixelating image details and adding text</p>
+<p align="center">A browser-based editor for pixelating image details, adding text and highlighting areas with ellipses</p>
 
 <hr>
 
 ## ℹ️ Summary
 
 Pixelate faces, license plates, and other details with a rectangle or brush.
+Highlight areas with outline-only ellipses in your chosen color and stroke width.
 Pixban processes images locally in your browser and exports at the original resolution.
 
 - You can use the live app at [**pixban.app**](https://pixban.app).

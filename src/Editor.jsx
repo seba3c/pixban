@@ -11,6 +11,7 @@ export default function Editor({
   tool,
   block,
   diameter,
+  ellipseStyle,
   zoom,
   setZoom,
   viewRequest,
@@ -144,7 +145,7 @@ export default function Editor({
       ctx.setLineDash([5 / scale, 4 / scale]);
       ctx.strokeRect(b.x, b.y, b.w, b.h);
       ctx.setLineDash([]);
-      if (op.kind === "rect")
+      if (op.kind === "rect" || op.kind === "ellipse")
         for (const [x, y] of [
           [b.x, b.y],
           [b.x + b.w, b.y],
@@ -182,7 +183,7 @@ export default function Editor({
     if (tool === "select") {
       const hit = hitTest(ops, p.x, p.y);
       const op = ops.find((o) => o.id === selected);
-      if (op?.kind === "rect" && hit?.kind !== "text") {
+      if ((op?.kind === "rect" || op?.kind === "ellipse") && hit?.kind !== "text") {
         const corners = [
           ["nw", op.x, op.y],
           ["ne", op.x + op.w, op.y],
@@ -198,7 +199,7 @@ export default function Editor({
         }
       }
       onSelect(hit?.id || null);
-      if (hit?.kind === "rect" || hit?.kind === "text")
+      if (hit?.kind === "rect" || hit?.kind === "text" || hit?.kind === "ellipse")
         gesture.current = { type: "move", start: p, op: hit, x: e.clientX, y: e.clientY };
       return;
     }
@@ -211,8 +212,8 @@ export default function Editor({
     const op = {
       id: crypto.randomUUID(),
       kind: tool,
-      block,
-      ...(tool === "rect"
+      ...(tool === "ellipse" ? ellipseStyle : { block }),
+      ...(tool === "rect" || tool === "ellipse"
         ? { x: p.x, y: p.y, w: 0, h: 0 }
         : { diameter, points: [p] }),
     };
@@ -231,7 +232,15 @@ export default function Editor({
     }
     const q = { x: clamp(p.x, 0, image.width), y: clamp(p.y, 0, image.height) };
     if (g.type === "new") {
-      if (g.op.kind === "rect") {
+      if (g.op.kind === "rect" || g.op.kind === "ellipse") {
+        if (g.op.kind === "ellipse" && e.shiftKey) {
+          const dx = p.x - g.start.x, dy = p.y - g.start.y;
+          const side = Math.min(Math.max(Math.abs(dx), Math.abs(dy)),
+            dx < 0 ? g.start.x : image.width - g.start.x,
+            dy < 0 ? g.start.y : image.height - g.start.y);
+          q.x = g.start.x + (dx < 0 ? -side : side);
+          q.y = g.start.y + (dy < 0 ? -side : side);
+        }
         const x = Math.min(g.start.x, q.x),
           y = Math.min(g.start.y, q.y);
         g.op = {
@@ -281,7 +290,7 @@ export default function Editor({
     gesture.current = null;
     if (
       g.type === "new" &&
-      (g.op.kind !== "rect" || (g.op.w >= 1 && g.op.h >= 1))
+      ((g.op.kind !== "rect" && g.op.kind !== "ellipse") || (g.op.w >= 1 && g.op.h >= 1))
     )
       onCommit([...ops, g.op]);
     else if (g.result)
