@@ -1,3 +1,4 @@
+import { lineGeometry } from "./line.js";
 import { renderPixels } from "./engine.js";
 
 export const textFont = size => `${size}px Arial, sans-serif`;
@@ -23,6 +24,24 @@ export function renderImage(image, ops) {
   ctx.putImageData(new ImageData(renderPixels(image.data, image.width, image.height, ops), image.width, image.height), 0, 0);
   ctx.textBaseline = "alphabetic";
   for (const op of ops) {
+    if (op.kind === "line") {
+      ctx.save();
+      ctx.strokeStyle = ctx.fillStyle = op.color;
+      ctx.lineWidth = op.strokeWidth;
+      ctx.lineCap = "butt";
+      const { shaft, markers } = lineGeometry(op);
+      if (shaft) {
+        ctx.beginPath(); ctx.moveTo(shaft.from.x, shaft.from.y); ctx.lineTo(shaft.to.x, shaft.to.y); ctx.stroke();
+      }
+      for (const marker of markers) {
+        ctx.beginPath();
+        if (marker.kind === "circle") ctx.arc(marker.x, marker.y, marker.r, 0, Math.PI * 2);
+        else { marker.points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); }
+        ctx.fill();
+      }
+      ctx.restore();
+      continue;
+    }
     if (op.kind === "ellipse") {
       if (op.w > 0 && op.h > 0) {
         ctx.beginPath();

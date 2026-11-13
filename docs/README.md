@@ -1,6 +1,6 @@
 # Pixban user guide
 
-Pixban lets you pixelate parts of an image, add text and highlight areas with ellipses in your browser. You can try the tools with **Try a sample image**.
+Pixban lets you pixelate parts of an image, add text and highlight areas with ellipses and lines in your browser. You can try the tools with **Try a sample image**.
 
 ## Open an image
 
@@ -19,6 +19,10 @@ Pixban accepts **PNG, JPEG and WebP** images up to **32 megapixels**.
 
 - ![](assets/icons/circle.svg) **Ellipse** (`E`). Drag to highlight an area with an outline and transparent interior. Hold `Shift` to draw a circle. Select its interior or outline to move it, and use the corner handles to resize it. Solid fills are not available.
 
+- ![](assets/icons/slash.svg) **Line** (`L`). Click to set the start, then click again to finish. A preview follows the pointer between clicks; use two taps on touchscreens. Hold `Shift` to snap to 45° increments. The second point is limited to the image edge. With Select, drag the stroke to move the line or its endpoints to adjust it, also with Shift. Press `Esc` to cancel. Using Settings, another tool, Edits, the guide, export or copy cancels the pending line. Undo or Redo first cancels the draft. Zoom and temporary Space-pan preserve it.
+
+For lines, set **Stroke width** (1–25 px, initially 4 px), **Stroke color** (initially red), **Start** and **End**. Each endpoint has three illustrated squares to the right of its label: **None**, **Circle** and **Arrow**. Click a square to select it, or use the arrow keys while the group has keyboard focus. Circles and arrows are solid and share the stroke color; both endpoints initially use None. Settings apply to the selected line and subsequent lines, persist during the session, and reset when the image is closed.
+
 ## Settings and history
 
 - ![](assets/icons/sliders-horizontal.svg) Use **Tool settings** to configure the active tool or selected edit. **Block size** ranges from 4 to 25 px for rectangles and brush strokes. **Brush diameter** ranges from 8 to 50 px and applies to new strokes. For text, set **Font size** (8–256 px) and **Text color**. For ellipses, set **Stroke width** (1–25 px; initially 4 px) and **Stroke color** (initially red). Settings apply to the selected ellipse and subsequent ellipses.
@@ -32,7 +36,7 @@ Pixban accepts **PNG, JPEG and WebP** images up to **32 megapixels**.
 - ![](assets/icons/download.svg) **Export** opens the format picker. Pixban initially selects the source format. Choose **PNG** or **WebP** to preserve transparency, or **JPEG** for a white background. Choose **Download image** to save a copy. If the browser does not support the selected format, Pixban downloads a PNG instead.
 - ![](assets/icons/copy.svg) **Copy to clipboard** copies the edited image as PNG. If clipboard access is unavailable, use **Export** to download a file.
 
-Both options keep the original resolution and flatten pixelation, text and ellipses into the copy. Your original file stays intact.
+Both options keep the original resolution and flatten pixelation, text, ellipses and lines into the copy. Your original file stays intact.
 
 ## Privacy and security
 

@@ -1150,18 +1150,18 @@ test("desktop inspector starts below the logo and icon tools keep hints and shor
     const group = page.getByRole("group", { name: locale === "EN" ? "Additional tools" : "Herramientas adicionales" });
     const text = group.getByRole("button", { name: locale === "EN" ? "Text" : "Texto", exact: true });
     await expect(text).toBeVisible();
-    await expect(group.getByRole("button")).toHaveCount(2);
+    await expect(group.getByRole("button")).toHaveCount(3);
     await expect(group).toHaveCSS("border-top-width", "0px");
     expect(await text.evaluate(button => {
       const line = getComputedStyle(button, "::before");
       return [line.borderTopWidth, line.left, line.right];
     })).toEqual(["1px", "6px", "6px"]);
     const toolButtons = page.locator(".toolbar .tool");
-    await expect(toolButtons).toHaveCount(6);
-    const shortcuts = ["V", "H", "R", "B", "T", "E"];
+    await expect(toolButtons).toHaveCount(7);
+    const shortcuts = ["V", "H", "R", "B", "T", "E", "L"];
     const labels = locale === "EN"
-      ? ["Select", "Pan", "Pixelated rectangle", "Pixelated brush", "Text", "Ellipse"]
-      : ["Seleccionar", "Desplazar", "Rectángulo pixelado", "Pincel de pixelado", "Texto", "Elipse"];
+      ? ["Select", "Pan", "Pixelated rectangle", "Pixelated brush", "Text", "Ellipse", "Line"]
+      : ["Seleccionar", "Desplazar", "Rectángulo pixelado", "Pincel de pixelado", "Texto", "Elipse", "Línea"];
     for (const [index, shortcut] of shortcuts.entries()) {
       const tool = toolButtons.nth(index);
       await expect(tool).toHaveText("");
@@ -1670,7 +1670,7 @@ test("mobile status bar, footer, tools and floating zoom fit both languages and 
         for (const button of await page.locator(".toolbar button").all()) {
           const box = await button.boundingBox();
           expect(box.y).toBe(first.y);
-          expect(box.width).toBeCloseTo(Math.min(44, (width - 49) / 8), 1);
+          expect(box.width).toBeCloseTo(Math.min(44, (width - 53) / 9), 1);
           expect(box.height).toBe(44);
           expect(box.x).toBeGreaterThanOrEqual(tools.x);
           expect(box.x + box.width).toBeLessThanOrEqual(tools.x + tools.width);
@@ -1727,6 +1727,8 @@ test("mobile zoom changes scale without editing and survives viewport and settin
   await expect(page.locator(".tool-text")).toBeFocused();
   await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
   await expect(page.locator(".tool-ellipse")).toBeFocused();
+  await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+  await expect(page.locator(".tool-line")).toBeFocused();
   await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
   await expect(page.locator(".edits-action")).toBeFocused();
   await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");

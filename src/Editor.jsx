@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { bounds, clamp, hitTest } from "./engine.js";
 import { renderImage, textFont, textLineHeight } from "./render.js";
+import { lineEnd } from "./line.js";
 export default function Editor({
   image,
   suspended,
@@ -12,6 +13,7 @@ export default function Editor({
   block,
   diameter,
   ellipseStyle,
+  lineStyle,
   zoom,
   setZoom,
   viewRequest,
@@ -28,6 +30,7 @@ export default function Editor({
     wrap = useRef(),
     canvas = useRef(),
     gesture = useRef(),
+    pendingLine = useRef(),
     space = useRef(false),
     offscreen = useRef(),
     appliedView = useRef(),
@@ -36,6 +39,42 @@ export default function Editor({
     [pan, setPan] = useState({ x: 0, y: 0 }),
     [draft, setDraft] = useState(null),
     [cursor, setCursor] = useState(null);
+  const cancelLine = () => {
+    if (!pendingLine.current) return false;
+    pendingLine.current = null;
+    setDraft(null);
+    return true;
+  };
+  useEffect(() => { cancelLine(); }, [tool, image, suspended, ops]);
+  useEffect(() => {
+    let swallowClick = false;
+    const outside = e => {
+      if (canvas.current?.contains(e.target) || e.target.closest?.(".zoom-controls, .mobile-zoom-controls")) return;
+      const button = e.target.closest?.("button");
+      const undo = [t.undo, t.redo].includes(button?.getAttribute("aria-label"));
+      if (cancelLine() && undo) swallowClick = true;
+    };
+    const click = e => { if (swallowClick) { swallowClick = false; e.preventDefault(); e.stopImmediatePropagation(); } };
+    const focus = e => { if (e.target.closest?.(".settings")) cancelLine(); };
+    const key = e => {
+      if (e.key === "Escape" || ((e.ctrlKey || e.metaKey) && ["z", "y"].includes(e.key.toLowerCase()))) {
+        if (cancelLine()) { e.preventDefault(); e.stopImmediatePropagation(); }
+      }
+    };
+    const blur = () => cancelLine();
+    document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("click", click, true);
+    document.addEventListener("focusin", focus, true);
+    window.addEventListener("keydown", key, true);
+    window.addEventListener("blur", blur);
+    return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      document.removeEventListener("click", click, true);
+      document.removeEventListener("focusin", focus, true);
+      window.removeEventListener("keydown", key, true);
+      window.removeEventListener("blur", blur);
+    };
+  }, [t]);
   const scale = zoom,
     origin = {
       x: (size.w - image.width * scale) / 2 + pan.x,
@@ -79,9 +118,9 @@ export default function Editor({
     const down = (e) => {
       if (
         e.code === "Space" &&
-        !["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(
+        (!["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(
           document.activeElement.tagName,
-        )
+        ) || document.activeElement.classList.contains("tool"))
       ) {
         e.preventDefault();
         space.current = true;
@@ -143,8 +182,15 @@ export default function Editor({
       ctx.strokeStyle = theme === "dark" ? "#f87171" : "#2563eb";
       ctx.lineWidth = 1.5 / scale;
       ctx.setLineDash([5 / scale, 4 / scale]);
-      ctx.strokeRect(b.x, b.y, b.w, b.h);
+      if (op.kind !== "line") ctx.strokeRect(b.x, b.y, b.w, b.h);
       ctx.setLineDash([]);
+      if (op.kind === "line") {
+        for (const [x, y] of [[op.x1, op.y1], [op.x2, op.y2]]) {
+          ctx.fillStyle = "#fff";
+          ctx.fillRect(x - 4 / scale, y - 4 / scale, 8 / scale, 8 / scale);
+          ctx.strokeRect(x - 4 / scale, y - 4 / scale, 8 / scale, 8 / scale);
+        }
+      }
       if (op.kind === "rect" || op.kind === "ellipse")
         for (const [x, y] of [
           [b.x, b.y],
@@ -172,7 +218,7 @@ export default function Editor({
   drawRef.current = draw;
   useEffect(draw, [size, zoom, pan, selected, cursor, tool, diameter, theme]);
   function down(e) {
-    if (e.button !== 0 && e.button !== 1) return;
+    if (suspended || (e.button !== 0 && e.button !== 1)) return;
     e.preventDefault();
     canvas.current.setPointerCapture(e.pointerId);
     const p = point(e);
@@ -181,8 +227,12 @@ export default function Editor({
       return;
     }
     if (tool === "select") {
-      const hit = hitTest(ops, p.x, p.y);
+      const hit = hitTest(ops, p.x, p.y, 6 / scale);
       const op = ops.find((o) => o.id === selected);
+      if (op?.kind === "line") {
+        const endpoint = [1, 2].find(i => Math.hypot(p.x - op[`x${i}`], p.y - op[`y${i}`]) < 10 / scale);
+        if (endpoint) { gesture.current = { type: "endpoint", endpoint, op }; return; }
+      }
       if ((op?.kind === "rect" || op?.kind === "ellipse") && hit?.kind !== "text") {
         const corners = [
           ["nw", op.x, op.y],
@@ -199,11 +249,24 @@ export default function Editor({
         }
       }
       onSelect(hit?.id || null);
-      if (hit?.kind === "rect" || hit?.kind === "text" || hit?.kind === "ellipse")
+      if (hit?.kind === "rect" || hit?.kind === "text" || hit?.kind === "ellipse" || hit?.kind === "line")
         gesture.current = { type: "move", start: p, op: hit, x: e.clientX, y: e.clientY };
       return;
     }
+    if (tool === "line" && pendingLine.current) {
+      const op = pendingLine.current;
+      const end = lineEnd({ x: op.x1, y: op.y1 }, p, image.width, image.height, e.shiftKey);
+      cancelLine();
+      if (Math.hypot(end.x - op.x1, end.y - op.y1) >= 1) {
+        onCommit([...ops, { ...op, x2: end.x, y2: end.y }]); onSelect(op.id);
+      }
+      return;
+    }
     if (p.x < 0 || p.y < 0 || p.x > image.width || p.y > image.height) return;
+    if (tool === "line") {
+      const op = { id: crypto.randomUUID(), kind: "line", x1: p.x, y1: p.y, x2: p.x, y2: p.y, ...lineStyle };
+      pendingLine.current = op; onSelect(null); setDraft({ op }); return;
+    }
     if (tool === "text") {
       const hit = hitTest(ops.filter(op => op.kind === "text"), p.x, p.y);
       onTextStart(hit || { x: clamp(p.x, 0, image.width - 1), y: clamp(p.y, 0, image.height - 1) });
@@ -225,12 +288,33 @@ export default function Editor({
     const p = point(e);
     setCursor(p);
     const g = gesture.current;
+    if (!g && pendingLine.current) {
+      const op = pendingLine.current;
+      const end = lineEnd({ x: op.x1, y: op.y1 }, p, image.width, image.height, e.shiftKey);
+      setDraft({ op: { ...op, x2: end.x, y2: end.y } });
+      return;
+    }
     if (!g) return;
     if (g.type === "pan") {
       setPan({ x: g.pan.x + e.clientX - g.x, y: g.pan.y + e.clientY - g.y });
       return;
     }
     const q = { x: clamp(p.x, 0, image.width), y: clamp(p.y, 0, image.height) };
+    if (g.type === "endpoint") {
+      const other = g.endpoint === 1 ? 2 : 1;
+      const end = lineEnd({ x: g.op[`x${other}`], y: g.op[`y${other}`] }, p, image.width, image.height, e.shiftKey);
+      if (Math.hypot(end.x - g.op[`x${other}`], end.y - g.op[`y${other}`]) >= 1) {
+        g.result = { ...g.op, [`x${g.endpoint}`]: end.x, [`y${g.endpoint}`]: end.y };
+        setDraft({ replace: true, op: g.result });
+      }
+      return;
+    }
+    if (g.type === "move" && g.op.kind === "line") {
+      const dx = clamp(p.x - g.start.x, -Math.min(g.op.x1, g.op.x2), image.width - Math.max(g.op.x1, g.op.x2));
+      const dy = clamp(p.y - g.start.y, -Math.min(g.op.y1, g.op.y2), image.height - Math.max(g.op.y1, g.op.y2));
+      g.result = { ...g.op, x1: g.op.x1 + dx, x2: g.op.x2 + dx, y1: g.op.y1 + dy, y2: g.op.y2 + dy };
+      setDraft({ replace: true, op: g.result }); return;
+    }
     if (g.type === "new") {
       if (g.op.kind === "rect" || g.op.kind === "ellipse") {
         if (g.op.kind === "ellipse" && e.shiftKey) {
@@ -296,7 +380,7 @@ export default function Editor({
     else if (g.result)
       onCommit(ops.map((o) => (o.id === g.op.id ? g.result : o)));
     else if (movingText) onTextStart(g.op);
-    setDraft(null);
+    if (g.type !== "pan" || !pendingLine.current) setDraft(null);
   }
   return (
     <div className="viewport" ref={wrap}>
@@ -323,6 +407,7 @@ export default function Editor({
         onPointerUp={up}
         onPointerCancel={() => {
           gesture.current = null;
+          cancelLine();
           setDraft(null);
         }}
         onPointerLeave={() => setCursor(null)}
