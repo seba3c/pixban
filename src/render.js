@@ -23,6 +23,16 @@ export function renderImage(image, ops) {
   ctx.putImageData(new ImageData(renderPixels(image.data, image.width, image.height, ops), image.width, image.height), 0, 0);
   ctx.textBaseline = "alphabetic";
   for (const op of ops) {
+    if (op.kind === "ellipse") {
+      if (op.w > 0 && op.h > 0) {
+        ctx.beginPath();
+        ctx.ellipse(op.x + op.w / 2, op.y + op.h / 2, op.w / 2, op.h / 2, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = op.color;
+        ctx.lineWidth = op.strokeWidth;
+        ctx.stroke();
+      }
+      continue;
+    }
     if (op.kind !== "text") continue;
     ctx.font = textFont(op.fontSize);
     ctx.fillStyle = op.color;

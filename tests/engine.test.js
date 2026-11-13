@@ -104,3 +104,23 @@ test("one text session resolves to an immutable history change", () => {
   assert.deepEqual(historyReducer(state, { type: "undo" }).present, created);
   assert.deepEqual(historyReducer(historyReducer(state, { type: "undo" }), { type: "redo" }).present, edited);
 });
+
+test("ellipse selection includes its interior and stroke but excludes box corners", () => {
+  const ellipse = { id: "e", kind: "ellipse", x: 2, y: 3, w: 40, h: 20, strokeWidth: 4, color: "#ff0000" };
+  assert.deepEqual(bounds(ellipse), { x: 2, y: 3, w: 40, h: 20 });
+  assert.equal(contains(ellipse, 22, 13), true);
+  assert.equal(contains(ellipse, 22, 2), true);
+  assert.equal(contains(ellipse, 22, 0), false);
+  assert.equal(contains(ellipse, 2, 3), false);
+  assert.equal(contains({ ...ellipse, w: 0 }, 2, 13), false);
+  assert.deepEqual(renderPixels(source, w, h, [ellipse]), source);
+});
+
+test("annotations follow creation order above later pixelation", () => {
+  const ellipse = { id: "e", kind: "ellipse", x: 0, y: 0, w: 8, h: 8, strokeWidth: 1 };
+  const text = { id: "t", kind: "text", x: 2, y: 2, w: 4, h: 4 };
+  const rect = { id: "r", kind: "rect", x: 0, y: 0, w: 8, h: 8, block: 4 };
+  assert.equal(hitTest([text, ellipse, rect], 4, 4), ellipse);
+  assert.equal(hitTest([ellipse, text, rect], 4, 4), text);
+  assert.equal(hitTest([ellipse, rect], 0, 0), rect);
+});
