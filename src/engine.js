@@ -1,5 +1,7 @@
+import { lineBounds, lineContains } from "./line.js";
 export const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 export function bounds(op) {
+  if (op.kind === "line") return lineBounds(op);
   if (op.kind === "rect" || op.kind === "text" || op.kind === "ellipse") return { x: op.x, y: op.y, w: op.w, h: op.h };
   const xs = op.points.map((p) => p.x),
     ys = op.points.map((p) => p.y),
@@ -11,7 +13,8 @@ export function bounds(op) {
     h: Math.max(...ys) - Math.min(...ys) + 2 * r,
   };
 }
-export function contains(op, x, y) {
+export function contains(op, x, y, tolerance = 0) {
+  if (op.kind === "line") return lineContains(op, x, y, tolerance);
   if (op.kind === "ellipse") {
     if (op.w <= 0 || op.h <= 0) return false;
     const rx = op.w / 2 + op.strokeWidth / 2, ry = op.h / 2 + op.strokeWidth / 2;
@@ -118,7 +121,7 @@ export function resolveTextEdit(ops, edit) {
     : [...ops, edit];
 }
 // Annotations retain creation order above all pixelation masks.
-export function hitTest(ops, x, y) {
-  return [...ops.filter(op => op.kind === "rect" || op.kind === "brush"), ...ops.filter(op => op.kind === "text" || op.kind === "ellipse")]
-    .reverse().find(op => contains(op, x, y));
+export function hitTest(ops, x, y, tolerance = 0) {
+  return [...ops.filter(op => op.kind === "rect" || op.kind === "brush"), ...ops.filter(op => op.kind === "text" || op.kind === "ellipse" || op.kind === "line")]
+    .reverse().find(op => contains(op, x, y, tolerance));
 }

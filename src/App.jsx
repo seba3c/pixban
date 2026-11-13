@@ -1,8 +1,10 @@
+import { MIN_STROKE_WIDTH, MAX_STROKE_WIDTH, DEFAULT_STROKE_STYLE, lineGeometry } from "./line.js";
 import { useEffect, useReducer, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import {
   Type,
   Circle,
+  Slash,
   ArrowUpRight,
   FolderOpen,
   ClipboardPaste,
@@ -46,7 +48,8 @@ import { messages, preference, persist } from "./i18n.js";
 import { localePath, pathLocale, renderGuide, seo, updatePageMetadata } from "./seo.js";
 const DEFAULT_BLOCK = 25;
 const DEFAULT_DIAMETER = 45;
-const DEFAULT_ELLIPSE_STYLE = { strokeWidth: 4, color: "#ff0000" };
+const DEFAULT_ELLIPSE_STYLE = DEFAULT_STROKE_STYLE;
+const DEFAULT_LINE_STYLE = { ...DEFAULT_STROKE_STYLE, startStyle: "none", endStyle: "none" };
 const IMAGE_EXTENSIONS = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
 
 // Render only image pixels; editor overlays never enter either export destination.
@@ -73,6 +76,29 @@ function IconButton({ label, children, className = "", ...props }) {
       {children}
     </button>
   );
+}
+function EndpointStyles({ endpoint, value, onChange, disabled, t }) {
+  const titleId = `line-${endpoint}-title`;
+  return <div className="settings-row endpoint-row">
+    <span id={titleId}>{t[endpoint]}</span>
+    <div className="endpoint-options" role="radiogroup" aria-labelledby={titleId} id={`line-${endpoint}`}>
+      {["none", "circle", "arrow"].map(style => {
+        const { shaft, markers } = lineGeometry({ x1: 7, y1: 8, x2: 33, y2: 8, strokeWidth: 2.5,
+          startStyle: "none", endStyle: style });
+        return <label className="endpoint-option" key={style} title={t[style]}>
+          <input type="radio" name={`line-${endpoint}`} value={style} checked={value === style}
+            disabled={disabled} aria-label={t[style]} onChange={() => onChange(style)} />
+          <svg viewBox="0 0 40 16" aria-hidden="true" focusable="false">
+            {shaft && <line x1={shaft.from.x} y1={shaft.from.y} x2={shaft.to.x} y2={shaft.to.y}
+              stroke="currentColor" strokeWidth="2.5" />}
+            {markers.map((marker, i) => marker.kind === "circle"
+              ? <circle key={i} cx={marker.x} cy={marker.y} r={marker.r} fill="currentColor" />
+              : <polygon key={i} points={marker.points.map(p => `${p.x},${p.y}`).join(" ")} fill="currentColor" />)}
+          </svg>
+        </label>;
+      })}
+    </div>
+  </div>;
 }
 function CloseDocumentButton(props) {
   return <IconButton {...props}><X size={16} /></IconButton>;
@@ -205,7 +231,8 @@ export default function App() {
     [slider, setSlider] = useState(null),
     [textEdit, setTextEdit] = useState(null),
     [textStyle, setTextStyle] = useState({ fontSize: 32, color: "#000000" }),
-    [ellipseStyle, setEllipseStyle] = useState(DEFAULT_ELLIPSE_STYLE);
+    [ellipseStyle, setEllipseStyle] = useState(DEFAULT_ELLIPSE_STYLE),
+    [lineStyle, setLineStyle] = useState(DEFAULT_LINE_STYLE);
   const textEditRef = useRef(null), opsRef = useRef(ops);
   opsRef.current = ops;
   const updateTextEdit = next => { textEditRef.current = next; setTextEdit(next); };
@@ -221,7 +248,11 @@ export default function App() {
   const settingsKind = tool === "select" ? active?.kind : tool;
   const textSettings = settingsKind === "text";
   const ellipseSettings = settingsKind === "ellipse";
-  const effectiveStrokeWidth = slider ?? (active?.kind === "ellipse" ? active.strokeWidth : ellipseStyle.strokeWidth);
+  const lineSettings = settingsKind === "line";
+  const shapeStyle = lineSettings ? lineStyle : ellipseStyle;
+  const shapeKind = lineSettings ? "line" : "ellipse";
+  const setShapeStyle = lineSettings ? setLineStyle : setEllipseStyle;
+  const effectiveStrokeWidth = slider ?? (["ellipse", "line"].includes(active?.kind) ? active.strokeWidth : shapeStyle.strokeWidth);
   const pixelSettings = settingsKind === "rect" || settingsKind === "brush";
   const effectiveBlock = slider ?? active?.block ?? block;
   const resizedText = active?.kind === "text" && slider !== null
@@ -229,7 +260,7 @@ export default function App() {
   const effectiveFontSize = resizedText?.fontSize ?? active?.fontSize ?? textStyle.fontSize;
   const effectiveOps = resolveTextEdit(
     slider !== null && active && active.kind !== "text"
-      ? ops.map((o) => (o.id === active.id ? { ...o, [active.kind === "ellipse" ? "strokeWidth" : "block"]: slider } : o))
+      ? ops.map((o) => (o.id === active.id ? { ...o, [["ellipse", "line"].includes(active.kind) ? "strokeWidth" : "block"]: slider } : o))
       : ops, resizedText ?? textEdit);
   const commit = (next) => {
     if (JSON.stringify(next) === JSON.stringify(opsRef.current)) return;
@@ -267,6 +298,10 @@ export default function App() {
     setEllipseStyle(style => ({ ...style, ...patch }));
     if (active?.kind === "ellipse")
       commit(ops.map(op => op.id === active.id ? { ...op, ...patch } : op));
+  };
+  const changeLineStyle = patch => {
+    setLineStyle(style => ({ ...style, ...patch }));
+    if (active?.kind === "line") commit(ops.map(op => op.id === active.id ? { ...op, ...patch } : op));
   };
   useEffect(() => {
     const finishOutside = event => {
@@ -355,7 +390,7 @@ export default function App() {
         remove();
       }
       if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-        const tools = { v: "select", r: "rect", b: "brush", t: "text", e: "ellipse", h: "pan" };
+        const tools = { v: "select", r: "rect", b: "brush", t: "text", e: "ellipse", l: "line", h: "pan" };
         const nextTool = tools[e.key.toLowerCase()];
         if (nextTool) {
           e.preventDefault();
@@ -410,6 +445,7 @@ export default function App() {
     updateTextEdit(null);
     setTextStyle({ fontSize: 32, color: "#000000" });
     setEllipseStyle(DEFAULT_ELLIPSE_STYLE);
+    setLineStyle(DEFAULT_LINE_STYLE);
     setZoom(1);
     setViewRequest({ mode: "fit", token: 0 });
     setFormat("png");
@@ -595,9 +631,9 @@ export default function App() {
     if (resizedText) {
       if (textEditRef.current?.id === resizedText.id) updateTextEdit(resizedText);
       else commit(resolveTextEdit(opsRef.current, resizedText));
-    } else if (slider !== null && active && slider !== active[active.kind === "ellipse" ? "strokeWidth" : "block"]) {
+    } else if (slider !== null && active && slider !== active[["ellipse", "line"].includes(active.kind) ? "strokeWidth" : "block"]) {
       commit(
-        ops.map((o) => (o.id === active.id ? { ...o, [active.kind === "ellipse" ? "strokeWidth" : "block"]: slider } : o)),
+        ops.map((o) => (o.id === active.id ? { ...o, [["ellipse", "line"].includes(active.kind) ? "strokeWidth" : "block"]: slider } : o)),
       );
     }
     setSlider(null);
@@ -672,7 +708,7 @@ export default function App() {
       <div className="section-fold">
         <div id="tool-settings-body" inert={settingsFolded} aria-disabled={!image}>
           {active && <span className="eyebrow">{t.selected}</span>}
-          {!textSettings && !pixelSettings && !ellipseSettings && (
+          {!textSettings && !pixelSettings && !ellipseSettings && !lineSettings && (
             <div className="inspector-empty">
               <SlidersHorizontal size={28} strokeWidth={1.2} aria-hidden="true" />
               <strong>{t.emptyToolSettings}</strong>
@@ -703,28 +739,32 @@ export default function App() {
                 value={active?.color ?? textStyle.color} onChange={e => changeTextStyle({ color: e.target.value })} />
             </div>
           </>}
-          {ellipseSettings && <>
+          {(ellipseSettings || lineSettings) && <>
             <div className="settings-row">
-              <label htmlFor="ellipse-width">{t.strokeWidth}</label>
-              <output htmlFor="ellipse-width">{effectiveStrokeWidth}<small> px</small></output>
+              <label htmlFor={`${shapeKind}-width`}>{t.strokeWidth}</label>
+              <output htmlFor={`${shapeKind}-width`}>{effectiveStrokeWidth}<small> px</small></output>
             </div>
-            <input id="ellipse-width" type="range" min="1" max="25" step="1" disabled={!image}
+            <input id={`${shapeKind}-width`} type="range" min={MIN_STROKE_WIDTH} max={MAX_STROKE_WIDTH} step="1" disabled={!image}
               value={effectiveStrokeWidth} aria-valuetext={`${effectiveStrokeWidth} ${t.pixels}`}
               onChange={e => {
                 const strokeWidth = e.target.valueAsNumber;
-                setEllipseStyle(style => ({ ...style, strokeWidth }));
-                if (active?.kind === "ellipse") setSlider(strokeWidth);
+                setShapeStyle(style => ({ ...style, strokeWidth }));
+                if (active?.kind === shapeKind) setSlider(strokeWidth);
               }}
               onPointerUp={finishSlider} onPointerCancel={finishSlider}
               onKeyUp={finishSlider} onBlur={finishSlider} />
-            <div className="range-ends"><span>1 px</span><span>25 px</span></div>
+            <div className="range-ends"><span>{MIN_STROKE_WIDTH} px</span><span>{MAX_STROKE_WIDTH} px</span></div>
             <div className="settings-row">
-              <label htmlFor="ellipse-color">{t.strokeColor}</label>
-              <input id="ellipse-color" type="color" disabled={!image}
-                value={active?.kind === "ellipse" ? active.color : ellipseStyle.color}
-                onChange={e => changeEllipseStyle({ color: e.target.value })} />
+              <label htmlFor={`${shapeKind}-color`}>{t.strokeColor}</label>
+              <input id={`${shapeKind}-color`} type="color" disabled={!image}
+                value={active?.kind === shapeKind ? active.color : shapeStyle.color}
+                onChange={e => (lineSettings ? changeLineStyle : changeEllipseStyle)({ color: e.target.value })} />
             </div>
           </>}
+          {lineSettings && ["startStyle", "endStyle"].map(key => <EndpointStyles key={key}
+            endpoint={key} t={t} disabled={!image}
+            value={active?.kind === "line" ? active[key] : lineStyle[key]}
+            onChange={style => changeLineStyle({ [key]: style })} />)}
           {pixelSettings && <>
             <div className="settings-row">
               <label htmlFor="block">{t.block}</label>
@@ -825,7 +865,7 @@ export default function App() {
                     }}
                   >
                     <span className="region-icon">
-                      {op.kind === "text" ? <Type size={16} /> : op.kind === "ellipse" ? <Circle size={16} /> : op.kind === "rect" ? (
+                      {op.kind === "text" ? <Type size={16} /> : op.kind === "line" ? <Slash size={16} /> : op.kind === "ellipse" ? <Circle size={16} /> : op.kind === "rect" ? (
                         <SquareDashed size={16} />
                       ) : (
                         <Paintbrush size={16} />
@@ -833,7 +873,7 @@ export default function App() {
                     </span>
                     <span>
                       {t[op.kind]} {i + 1}
-                      <small>{op.kind === "text" ? op.text.replace(/\n/g, " ") : `${op.kind === "ellipse" ? op.strokeWidth : op.block} px`}</small>
+                      <small>{op.kind === "text" ? op.text.replace(/\n/g, " ") : `${["ellipse", "line"].includes(op.kind) ? op.strokeWidth : op.block} px`}</small>
                     </span>
                   </button>
                   <IconButton
@@ -971,6 +1011,7 @@ export default function App() {
             <div className="additional-tools" role="group" aria-label={t.additionalTools}>
               {renderTool(["text", Type, t.text, "T"])}
               {renderTool(["ellipse", Circle, t.ellipse, "E"])}
+              {renderTool(["line", Slash, t.line, "L"])}
             </div>
             {narrow && <div className="mobile-panel-actions">
               <IconButton className="edits-action" label={t.regions} disabled={!image} aria-haspopup="dialog"
@@ -991,7 +1032,7 @@ export default function App() {
             {image ? (
               <Editor
                 image={image}
-                suspended={guideOpen}
+                suspended={guideOpen || exportOpen || Boolean(mobilePanel) || busy}
                 ops={effectiveOps}
                 selected={selected}
                 onSelect={(id) => {
@@ -1003,6 +1044,7 @@ export default function App() {
                 block={block}
                 diameter={diameter}
                 ellipseStyle={ellipseStyle}
+                lineStyle={lineStyle}
                 zoom={zoom}
                 setZoom={setZoom}
                 viewRequest={viewRequest}

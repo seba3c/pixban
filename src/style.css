@@ -1153,8 +1153,8 @@ main { width: 100%; max-width: none; min-height: 0; padding: 0; margin: 0; displ
   .action-bar { grid-column: 1; grid-row: 1; padding: 4px 8px; gap: 4px; }
   .action-divider { margin: 0 2px; }
   .canvas-area, .user-guide { grid-column: 1; grid-row: 4; }
-  /* Reserve space for padding, seven gaps, and the Text separator. */
-  .toolbar { --tool-button-width: min(44px, calc((100vw - 49px) / 8)); grid-column: 1; grid-row: 2; padding: 1px 8px; flex-direction: row; justify-content: flex-start; align-items: center; flex-wrap: nowrap; border-right: 0; border-top: 0; border-bottom: 1px solid var(--line); gap: 4px; }
+  /* Reserve space for padding, eight gaps, and the Text separator. */
+  .toolbar { --tool-button-width: min(44px, calc((100vw - 53px) / 9)); grid-column: 1; grid-row: 2; padding: 1px 8px; flex-direction: row; justify-content: flex-start; align-items: center; flex-wrap: nowrap; border-right: 0; border-top: 0; border-bottom: 1px solid var(--line); gap: 4px; }
   .toolbar .tool, .mobile-panel-actions > .icon-button { width: var(--tool-button-width); height: 44px; }
   .mobile-panel-actions { display: flex; flex-shrink: 0; gap: 4px; margin-left: auto; }
   .additional-tools { flex-direction: row; gap: 4px; }
@@ -1223,3 +1223,17 @@ main { width: 100%; max-width: none; min-height: 0; padding: 0; margin: 0; displ
   .region-list .text-row { grid-column: 1 / -1; }
   .canvas-hint { max-width: calc(100% - 16px); text-align: center; }
 }
+
+.endpoint-row { flex-wrap: nowrap; }
+.endpoint-row > span { flex-shrink: 0; }
+.endpoint-options { display: flex; gap: 4px; margin-left: auto; flex-shrink: 0; }
+.endpoint-option {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  width: 44px; height: 26px; flex-shrink: 0; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 5px; color: var(--text); background: var(--surface);
+}
+.endpoint-option svg { width: 36px; height: 16px; pointer-events: none; }
+.endpoint-option input { position: absolute; inset: 0; margin: 0; width: 100%; height: 100%; opacity: 0; cursor: inherit; }
+.endpoint-option:has(input:checked) { border: 2px solid var(--accent); background: var(--accent-soft); }
+.endpoint-option:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.endpoint-option:has(input:disabled) { opacity: .45; cursor: default; }
